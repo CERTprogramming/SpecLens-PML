@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speclens-pml"
+version = "0.1.0"
+description = "Educational MLOps pipeline for probabilistic software correctness using PML contracts."
+authors = [
+    { name="SpecLens-PML Contributors" }
+]
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+    "joblib",
+    "pandas",
+    "PyYAML",
+    "scikit-learn",
+    "sphinx",
+    "sphinx-rtd-theme",
+    "streamlit"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]

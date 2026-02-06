@@ -43,9 +43,18 @@ Thumbs.db
 # ======================================================
 
 data/*.csv
+!data/datasets_v1.csv
 
 # Keep raw annotated examples tracked
 !data/raw/*.py
+
+# ======================================================
+# Packaging artifacts
+# ======================================================
+
+*.egg-info/
+dist/
+build/
 
 # ======================================================
 # Generated model artifacts
@@ -54,6 +63,7 @@ data/*.csv
 models/*.pkl
 
 # Keep the active model pointer tracked
+!models/model_v1.pkl
 !models/active_model.txt
 
 # ======================================================
@@ -70,14 +80,6 @@ models/*.pkl
 docs/_build/
 docs/build/
 site/
-
-# ======================================================
-# Packaging / distribution
-# ======================================================
-
-build/
-dist/
-*.egg-info/
 
 # ======================================================
 # Security / secrets

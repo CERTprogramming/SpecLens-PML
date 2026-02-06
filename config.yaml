@@ -1,14 +1,38 @@
+# Central configuration file for SpecLens-PML.
+# This file defines model hyperparameters, operational risk thresholds
+# and continuous training governance policies.
+
 model:
+  # Baseline classifier used in the training pipeline
   type: random_forest
+
+  # Number of trees in the Random Forest ensemble
   n_estimators: 100
+
+  # Maximum depth of each decision tree (controls complexity)
   max_depth: 5
+
+  # Handle class imbalance by weighting minority classes more strongly
   class_weight: balanced
 
 risk_thresholds:
+  # Operational thresholds used during inference to map risk scores
+  # into qualitative decision levels (LOW / MEDIUM / HIGH)
+
+  # Scores below this value are considered LOW risk
   low: 0.2
+
+  # Scores between low and medium are considered MEDIUM risk
   medium: 0.6
 
 continuous_training:
+  # Minimum acceptable accuracy for the active model.
+  # If performance drops below this threshold, retraining may be triggered.
   min_accuracy: 0.7
+
+  # Safety-oriented metric: minimum recall required on the RISKY class.
+  # Model promotion only occurs if this metric improves.
   min_recall_risky: 0.6
+
+  # Enable retraining when dataset drift or degradation is detected
   retrain_on_drift: true

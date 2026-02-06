@@ -1,6 +1,6 @@
 joblib
 pandas
-pyyaml
+PyYAML
 scikit-learn
 sphinx
 sphinx-rtd-theme

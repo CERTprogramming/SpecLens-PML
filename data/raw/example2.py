@@ -1,3 +1,7 @@
+# Example Python file annotated with PML contracts.
+# This file is used as part of the SpecLens-PML dataset to illustrate
+# class invariants and method-level specifications.
+
 class Account:
     # @invariant self.balance >= 0
 
@@ -25,7 +29,6 @@ class Account:
             amount = self.balance
         self.balance -= amount
         other.balance += amount
-
 
 def safe_div(a, b):
     # @requires b != 0

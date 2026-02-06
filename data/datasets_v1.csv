@@ -1,0 +1,16 @@
+name,class,n_params,n_requires,n_ensures,n_invariants,n_loc,label,source_file
+safe_div,,2,1,1,0,1,1,example2.py
+__init__,Account,2,1,0,0,1,1,example2.py
+deposit,Account,2,1,1,0,1,0,example2.py
+withdraw,Account,2,1,1,0,2,0,example2.py
+transfer_to,Account,3,1,2,0,3,0,example2.py
+bad_sqrt,,1,1,1,0,1,1,example_err.py
+unsafe_div,,2,1,1,0,1,0,example_err.py
+__init__,Counter,1,0,0,0,1,1,example_err.py
+dec,Counter,1,0,1,0,1,0,example_err.py
+__init__,Wallet,2,1,0,0,1,1,example_err.py
+spend,Wallet,2,1,1,0,1,0,example_err.py
+div,,2,1,1,0,1,1,example1.py
+sqrt,,1,1,1,0,1,0,example1.py
+mean,,1,1,2,0,1,0,example1.py
+clamp,,3,1,2,0,3,0,example1.py

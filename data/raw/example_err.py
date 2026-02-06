@@ -1,5 +1,8 @@
-import math
+# Example Python file annotated with PML contracts.
+# This file intentionally contains buggy implementations that may violate
+# their specifications, providing negative samples for training and evaluation.
 
+import math
 
 def bad_sqrt(x):
     # @requires x >= 0
@@ -7,13 +10,11 @@ def bad_sqrt(x):
     # BUG: returns negative value for some inputs
     return -math.sqrt(x)
 
-
 def unsafe_div(a, b):
     # @requires b != 0
     # @ensures result * b == a
     # BUG: uses true division, breaks the contract
     return a / b
-
 
 class Counter:
     # @invariant self.value >= 0
@@ -25,7 +26,6 @@ class Counter:
         # @ensures self.value >= 0
         # BUG: can violate the invariant
         self.value -= 1
-
 
 class Wallet:
     # @invariant self.money >= 0

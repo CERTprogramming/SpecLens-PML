@@ -162,7 +162,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies:
+Install dependencies (standard option):
 
 ```bash
 pip install -r requirements.txt
@@ -180,6 +180,15 @@ sphinx-rtd-theme
 streamlit
 ```
 
+Install dependencies (package-style installation option):
+
+```bash
+pip install -e .
+```
+
+This enables clean imports across the repository (e.g., import pml)
+without relying on manual sys.path modifications.
+
 Initialize the active model. This file defines which model is used during inference:
 
 ```bash
@@ -191,10 +200,11 @@ echo "models/model_v1.pkl" > models/active_model.txt
 
 ## Documentation (Sphinx)
 
-SpecLens-PML can also generate developer-oriented documentation using
-**Sphinx**, the standard documentation tool in the Python ecosystem.
-
+SpecLens-PML can generate developer-oriented API documentation using **Sphinx**,
+the standard documentation tool in the Python ecosystem.
 Sphinx is already included in the project dependencies (`requirements.txt`).
+Unlike Javadoc/JSDoc, Sphinx requires a small configuration step to enable
+automatic extraction of documentation from Python modules (via `autodoc`).
 
 To initialize and build the documentation, run:
 
@@ -202,11 +212,49 @@ To initialize and build the documentation, run:
 # Only required the first time
 sphinx-quickstart docs
 
+# Generate API docs automatically from source code
+sphinx-apidoc -o docs/source pml pipeline inference
+```
+
+Sphinx only documents importable Python packages, to add new source folders, include them explicitly.
+To support automatic module documentation make sure that `docs/source/conf.py` imports the SpecLens-PML modules:
+
+```python
+import os
+import sys
+sys.path.insert(0, os.path.abspath("../.."))
+```
+
+If these settings are missing, Sphinx may fail with errors such as
+`Unknown directive type "automodule"` or import errors when building the docs.
+
+Also enables `autodoc` (and related extensions):
+
+```python
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.viewcode"
+]
+```
+
+Finally, make sure that `docs/source/index.rst` contains `modules` under the `toctree` directive:
+
+```rst
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
+
+   modules
+```
+
+# Build the HTML documentation
 cd docs
+make clean
 make html
 ```
 
-The generated documentation will be available at `docs/_build/html/index.html`.
+The generated documentation will be available at `docs/build/html/index.html`.
 
 ------------------------------------------------------------------------
 
