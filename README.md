@@ -72,7 +72,7 @@ practice in safety-oriented systems.
 
 ------------------------------------------------------------------------
 
-### Between Testing and Formal Verification
+## Between Testing and Formal Verification
 
 SpecLens-PML intentionally operates in the space between traditional
 software testing and full formal verification:
@@ -174,6 +174,8 @@ joblib
 pandas
 PyYAML
 scikit-learn
+sphinx
+sphinx-rtd-theme
 streamlit
 ```
 
@@ -182,6 +184,27 @@ Initialize the active model (once):
 ```bash
 echo "models/model_v1.pkl" > models/active_model.txt
 ```
+
+------------------------------------------------------------------------
+
+## Documentation (Sphinx)
+
+SpecLens-PML can also generate developer-oriented documentation using
+**Sphinx**, the standard documentation tool in the Python ecosystem.
+
+Sphinx is already included in the project dependencies (`requirements.txt`).
+
+To initialize and build the documentation, run:
+
+```bash
+sphinx-quickstart docs
+cd docs
+make html
+```
+
+The generated HTML documentation will be available at:
+
+docs/_build/html/index.html
 
 ------------------------------------------------------------------------
 
@@ -230,8 +253,8 @@ This performs:
    - Parses new code
    - Reconstructs the same feature vector used in training
    - Outputs:
-     - a numeric risk score in [0,1]
-     - an operational risk level: `LOW`, `MEDIUM`, `HIGH`
+      - a numeric risk score in [0,1]
+      - an operational risk level: `LOW`, `MEDIUM`, `HIGH`
 
 The demo automatically runs all three steps on all files in `data/raw/`.
 
@@ -239,7 +262,7 @@ The demo automatically runs all three steps on all files in `data/raw/`.
 
 ## Web Interface (Streamlit)
 
-SpecLens-PML also provides a lightweight **web GUI** implemented with
+SpecLens-PML also provides a lightweight **web GUI** (Graphical User Interface) implemented with
 Streamlit. The GUI does not replace the MLOps pipeline: it is a thin
 presentation layer on top of the existing backend components.
 
@@ -251,21 +274,21 @@ streamlit run app.py
 
 The interface exposes the full system to non-technical users:
 
-- **Run full pipeline**  
-  Executes `demo.py` (dataset generation + training + inference).
+1. **Run full pipeline**  
+   Executes `demo.py` (dataset generation + training + inference).
 
-- **Trigger Continuous Training**  
-  Executes `ct_trigger.py`, potentially retraining and promoting a new
+ 2. **Trigger Continuous Training**  
+    Executes `ct_trigger.py`, potentially retraining and promoting a new
   model.
 
-- **Active model display**  
-  Shows the model currently in production (from `active_model.txt`).
+ 3. **Active model display**  
+    Shows the model currently in production (from `active_model.txt`).
 
-- **Code analysis**  
-  Upload a `.py` file annotated with PML and obtain:
-  - Function-level analysis
-  - Risk scores
-  - Operational levels (`LOW`, `MEDIUM`, `HIGH`)
+ 4. **Code analysis**  
+    Upload a `.py` file annotated with PML and obtain:
+       - Function-level analysis
+       - Risk scores
+       - Operational levels (`LOW`, `MEDIUM`, `HIGH`)
 
 The Streamlit application reuses the same backend scripts:
 
@@ -304,9 +327,9 @@ SpecLens-PML implements a complete MLOps workflow:
 
 4. **Operational Semantics**
    - Predictions are mapped to decision levels:
-     - `LOW`    – acceptable risk
-     - `MEDIUM` – warning
-     - `HIGH`   – critical
+        - `LOW`    – acceptable risk
+        - `MEDIUM` – warning
+        - `HIGH`   – critical
    - The system provides *decision support*, not proofs
 
 
@@ -370,7 +393,9 @@ This ensures that:
 - Rollback is immediate (just update one file)
 - Governance policies can be enforced
 
-### Model Promotion
+------------------------------------------------------------------------
+
+## Model Promotion
 
 `ct_trigger.py` closes the loop:
 
@@ -385,7 +410,7 @@ It performs the following steps:
 3. Evaluates both:
    - The current active model
    - The newly trained model
-4. Compares a safety-oriented metric (Recall on the RISKY class).
+4. Compares a safety-oriented metric (recall on the RISKY class).
 5. Promotes the new model **only if it improves the metric**.
 
 If the new model is better, `active_model.txt` is automatically updated.
@@ -416,7 +441,7 @@ The quality of predictions depends on data availability:
 the more annotated code is added to `data/raw/`, the more informative
 the system becomes.
 
-The focus of the project is on **architecture, reproducibility, and
+The focus of the project is on **architecture, reproducibility and
 lifecycle management**, not on achieving state-of-the-art model
 performance.
 
