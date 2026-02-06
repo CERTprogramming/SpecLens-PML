@@ -37,8 +37,8 @@ retraining and user-facing serving.
 
 ## MLOps Feedback Pipeline
 
-SpecLens-PML implements a simplified but realistic **Continuous Learning**
-architecture, inspired by standard MLOps lifecycle.
+SpecLens-PML implements a simplified but realistic **continuous learning**
+architecture, inspired by standard MLOps lifecycle patterns.
 
 ```mermaid
 flowchart TD
@@ -419,3 +419,23 @@ the system becomes.
 The focus of the project is on **architecture, reproducibility, and
 lifecycle management**, not on achieving state-of-the-art model
 performance.
+
+------------------------------------------------------------------------
+
+## Next Steps and Potential Thesis Extension
+
+SpecLens-PML is intentionally designed as a prototype,
+but its architecture naturally opens the door to a broader research
+and thesis-level evolution.
+
+Possible next steps include:
+
+- Scaling the dataset with larger real-world annotated Python projects
+- Integrating more advanced program analysis features (control-flow, data-flow)
+- Extending PML with richer specification constructs
+- Adopting full MLOps tooling (CI/CD pipelines, model registries, drift monitoring)
+- Exploring hybrid approaches that combine machine learning with formal methods
+
+With these extensions, SpecLens-PML could serve as a strong foundation
+for a thesis focused on **data-driven software correctness**,
+continuous verification and modern MLOps governance for safety-oriented systems.
