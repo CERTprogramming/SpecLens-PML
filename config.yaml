@@ -1,0 +1,14 @@
+model:
+  type: random_forest
+  n_estimators: 100
+  max_depth: 5
+  class_weight: balanced
+
+risk_thresholds:
+  low: 0.2
+  medium: 0.6
+
+continuous_training:
+  min_accuracy: 0.7
+  min_recall_risky: 0.6
+  retrain_on_drift: true
