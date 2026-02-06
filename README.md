@@ -13,11 +13,11 @@ and builds an end-to-end **MLOps pipeline with feedback-driven retraining**:
 - Generates labeled datasets through dynamic execution and contract checking  
 - Trains and versions machine learning models automatically  
 - Serves predictions as operational risk scores (`LOW`, `MEDIUM`, `HIGH`)  
-- Monitors safety-oriented metrics (e.g., Recall on risky functions)  
-- Triggers Continuous Training when performance degrades  
+- Monitors safety-oriented metrics (e.g., recall on risky functions)  
+- Automatically triggers retraining when model performance degrades  
 - Promotes new models only if they improve over the active one  
 
-This closes the loop between **training, monitoring, and deployment**,
+This closes the loop between **training, monitoring and deployment**,
 implementing a simplified but realistic Continuous Learning workflow.
 
 Unlike formal verification tools, SpecLens-PML does **not** aim to prove
@@ -72,6 +72,27 @@ practice in safety-oriented systems.
 
 ------------------------------------------------------------------------
 
+### Between Testing and Formal Verification
+
+SpecLens-PML intentionally operates in the space between traditional
+software testing and full formal verification:
+
+- Like testing, it relies on **dynamic execution** and observed runtime behavior
+- Like specification-based methods, it uses **contracts** (`requires/ensures`)
+  as structured semantic signals
+
+However, unlike theorem provers or static analyzers, SpecLens-PML does not
+provide mathematical guarantees of correctness.
+
+Instead, it offers a **probabilistic notion of confidence**:
+a data-driven feedback loop that helps software systems *tend toward correctness*
+by identifying risky functions earlier and continuously improving models over time.
+
+In this sense, SpecLens-PML represents an intermediate approach:
+more informative than isolated tests, but necessarily weaker than formal proofs.
+
+------------------------------------------------------------------------
+
 ## Project Structure
 
 ```
@@ -97,9 +118,12 @@ spec-lens-pml/
 └── README.md
 ```
 
+The repository is organized according to a standard MLOps separation of concerns:
+data generation, training, inference, monitoring and deployment artifacts.
+
 ------------------------------------------------------------------------
 
-## PML Syntax Example
+## PML Syntax Examples
 
 ```python
 def div(a, b):
@@ -292,7 +316,7 @@ SpecLens-PML implements a complete MLOps workflow:
 python3 ct_trigger.py
 ```
 
-The Continuous Training component:
+The continuous training component:
 
 - Monitors model performance
 - Compares metrics with operational thresholds
