@@ -3,6 +3,7 @@
 **SpecLens-PML** is an educational data-driven system that applies
 Machine Learning and MLOps principles to the domain of software
 correctness.
+It was developed as part of the Data-Driven Systems Engineering course (MSc Computer Engineering).
 
 The project introduces **PML (Python Modelling Language)**, a
 lightweight specification language inspired by JML (Java Modelling Language),
@@ -18,7 +19,7 @@ and builds an end-to-end **MLOps pipeline with feedback-driven retraining**:
 - Promotes new models only if they improve over the active one  
 
 This closes the loop between **training, monitoring and deployment**,
-implementing a simplified but realistic Continuous Learning workflow.
+implementing a simplified but realistic continuous learning workflow.
 
 Unlike formal verification tools, SpecLens-PML does **not** aim to prove
 correctness.  
@@ -172,7 +173,7 @@ pip install -r requirements.txt
 ```txt
 joblib
 pandas
-PyYAML
+pyyaml
 scikit-learn
 sphinx
 sphinx-rtd-theme
@@ -197,14 +198,14 @@ Sphinx is already included in the project dependencies (`requirements.txt`).
 To initialize and build the documentation, run:
 
 ```bash
+# Only required the first time
 sphinx-quickstart docs
+
 cd docs
 make html
 ```
 
-The generated HTML documentation will be available at:
-
-docs/_build/html/index.html
+The generated documentation will be available at `docs/_build/html/index.html`.
 
 ------------------------------------------------------------------------
 

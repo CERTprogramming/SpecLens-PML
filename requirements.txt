@@ -2,4 +2,6 @@ joblib
 pandas
 pyyaml
 scikit-learn
+sphinx
+sphinx-rtd-theme
 streamlit
