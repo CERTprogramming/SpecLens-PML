@@ -248,7 +248,9 @@ Finally, make sure that `docs/source/index.rst` contains `modules` under the `to
    modules
 ```
 
-# Build the HTML documentation
+Build the HTML documentation:
+
+```bash
 cd docs
 make clean
 make html
