@@ -168,7 +168,7 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-`requirements.txt`:
+`requirements.txt` includes the following dependencies:
 
 ```txt
 joblib
@@ -180,9 +180,10 @@ sphinx-rtd-theme
 streamlit
 ```
 
-Initialize the active model (once):
+Initialize the active model. This file defines which model is used during inference:
 
 ```bash
+# Only required the first time
 echo "models/model_v1.pkl" > models/active_model.txt
 ```
 
