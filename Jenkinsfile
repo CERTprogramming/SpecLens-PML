@@ -76,6 +76,20 @@ pipeline {
 
                 sh """
                 . .venv/bin/activate
+
+                # ------------------------------------------------------
+                # CI Fix: ensure repository root is visible to Python
+                #
+                # Jenkins executes scripts in an isolated environment.
+                # Without PYTHONPATH, imports such as:
+                #
+                #   from pipeline.features import extract_features
+                #
+                # would fail with:
+                #   ModuleNotFoundError: No module named 'pipeline'
+                # ------------------------------------------------------
+                export PYTHONPATH=\$PWD
+
                 python3 demo.py
                 """
             }
