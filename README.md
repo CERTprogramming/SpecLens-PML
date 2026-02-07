@@ -398,116 +398,82 @@ system is operated*, not *how it behaves*.
 
 ------------------------------------------------------------------------
 
-## Jenkins Quickstart (Docker)
+## Continuous Integration with Jenkins (Quickstart)
 
-SpecLens-PML can be executed automatically through Jenkins using the
-provided `Jenkinsfile`.
+SpecLens-PML includes support for **Jenkins-based Continuous Integration (CI)** through the provided `Jenkinsfile`.
+Although the project is educational, this integration reflects real MLOps engineering practices: training,
+evaluation, promotion and feedback collection are automated rather than executed manually.
 
-For convenience, the project also includes a lightweight Docker image
-that installs Python inside Jenkins, so the pipeline can run end-to-end
-without requiring external agents.
-
-From the root of the repository:
-
-```bash
-docker build -t jenkins-python -f Dockerfile.jenkins .
-```
-
-To run Jenkins locally
-
-```bash
-docker run -d \
-  -p 8080:8080 \
-  -p 50000:50000 \
-  --name jenkins-python \
-  jenkins-python
-```
-
-Then open Jenkins at:
-
-```
-http://localhost:8080
-```
-
-Follow the initial setup wizard and create an admin user,
-then create the Pipeline Job:
-
-1. Click **New Item**
-2. Select **Pipeline**
-3. Under **Pipeline Definition**, choose:
-
-   ```
-   Pipeline script from SCM
-   ```
-
-4. Set the repository URL:
-
-   ```
-   https://github.com/CERTprogramming/SpecLens-PML
-   ```
-
-5. Jenkins will automatically detect and run the included `Jenkinsfile`
-
-The job exposes a parameter:
-
-- `RUN_RESET` (boolean)
-
-If enabled, Jenkins will run:
-
-```bash
-./reset.sh
-```
-
-This is useful for clean reproducible demo runs.
-
-If disabled (default), the pipeline preserves the feedback pool,
-allowing the model to improve incrementally across executions.
-
-No special plugins are required beyond the standard Jenkins Pipeline setup
-(which is included by default in most Jenkins installations).
-
-------------------------------------------------------------------------
-
-## Continuous Integration with Jenkins (CI/CD Support)
-
-Although SpecLens-PML is an educational project, it is structured according
-to real MLOps engineering practices.  
-For this reason, the repository also includes support for **Jenkins-based
-Continuous Integration (CI)**.
-
-In modern MLOps systems, training and deployment should not rely on manual
-execution. Instead, pipelines are automated through CI/CD tools.
-
-Jenkins is widely used in industry to:
+Jenkins is commonly used in industry to:
 
 - automate reproducible execution of ML workflows  
 - enforce governance rules (champion/challenger promotion)  
 - track artifacts and ensure traceability  
 - integrate training and evaluation into DevOps pipelines  
 
-In SpecLens-PML, Jenkins is used to simulate a minimal CI loop for the
-continuous learning workflow.
+For convenience, the repository also includes a lightweight Docker image that installs Python inside Jenkins,
+allowing the full pipeline to run end-to-end without external agents:
 
-The provided `Jenkinsfile` automates the full end-to-end pipeline:
+1. **Build the Jenkins image**
+   From the root of the repository:
+
+   ```bash
+   docker build -t jenkins-python -f Dockerfile.jenkins .
+   ```
+
+2. **Run Jenkins locally**
+   ```bash
+   docker run -d   -p 8080:8080   -p 50000:50000   --name jenkins-python   jenkins-python
+   ```
+
+3. **Open Jenkins**
+
+   ```
+   http://localhost:8080
+   ```
+   Follow the initial setup wizard and create an admin user.
+
+Creating the Pipeline Job
+
+1. Click **New Item**
+
+2. Select **Pipeline**
+
+3. Under **Pipeline Definition**, choose:
+   ```
+   Pipeline script from SCM
+   ```
+
+4. Set the repository URL:
+   ```
+   https://github.com/CERTprogramming/SpecLens-PML
+
+5. Jenkins will automatically detect and execute the included `Jenkinsfile`
+
+The provided pipeline automates the full SpecLens-PML continuous learning workflow:
 
 1. **Repository checkout**  
-   Pulls the latest version of the project from Git.
+   Pulls the latest version of the project from GitHub.
 
 2. **Environment setup**  
    Creates a clean Python virtual environment and installs dependencies.
 
-3. **Reset demo state**  
-   Executes `reset.sh` to remove:
+3. **Optional reset demo state**  
+   The job exposes a boolean parameter:
+   - `RUN_RESET`
 
-   - feedback examples  
-   - generated datasets  
-   - trained candidate models  
-   - promoted champion model  
+   If enabled, Jenkins runs:
+   ```bash
+   ./reset.sh
+   ```
 
-   This guarantees reproducibility of each CI run.
+   This removes feedback examples, generated datasets, and trained models,
+   ensuring a fully reproducible clean run.
 
-4. **Run the full demo pipeline**
+   If disabled (default), the feedback pool is preserved, allowing the model
+   to improve incrementally across executions.
 
+4. **Run the full pipeline**
    ```bash
    python3 demo.py
    ```
@@ -520,43 +486,27 @@ The provided `Jenkinsfile` automates the full end-to-end pipeline:
    - champion promotion via `ct_trigger.py`
    - inference on unseen examples + feedback collection
 
-5. **Governance verification**
-
-   Jenkins ensures that a promoted model artifact exists:
+5. **Governance verification**  
+   Jenkins ensures that a promoted champion artifact exists:
 
    ```
    models/best_model.pkl
    ```
 
-6. **Artifact archiving**
+6. **Artifact archiving**  
+   Key artifacts are archived for traceability:
 
-   The pipeline archives all key ML artifacts for traceability:
+   - trained candidate models  
+   - champion model  
+   - generated datasets  
 
-   - trained candidate models
-   - champion model
-   - generated datasets
+Notes:
 
-To run the CI pipeline:
+- No special plugins are required beyond the standard Jenkins Pipeline setup.
+- Each build represents a simplified CI loop for specification-driven continuous learning.
 
-1. Install Jenkins locally or use a Jenkins server
-2. Create a new Pipeline project
-3. Connect it to this GitHub repository
-4. Ensure the pipeline uses the included `Jenkinsfile`
-5. Run the build
-
-Each build will automatically execute the full SpecLens-PML continuous
-training workflow from scratch.
-
-This integration demonstrates how a specification-driven ML system can be
-embedded into a real CI/CD process:
-
-- dataset generation becomes a CI stage  
-- model training becomes an automated job  
-- promotion becomes a governance decision  
-- inference produces operational feedback  
-
-Even in a simplified form, this reflects the core principles of modern
-MLOps deployment pipelines.
+This integration demonstrates how an ML correctness system can be embedded into a real CI/CD workflow:
+dataset generation becomes a CI stage, model training becomes automated, and promotion becomes a governance decision.
 
 ------------------------------------------------------------------------
 
