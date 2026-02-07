@@ -1,38 +1,80 @@
-# Central configuration file for SpecLens-PML.
-# This file defines model hyperparameters, operational risk thresholds
-# and continuous training governance policies.
+# ======================================================
+# SpecLens-PML Configuration
+# ======================================================
+#
+# Central configuration file for the SpecLens-PML project.
+#
+# This file defines:
+# - Candidate model families (baseline + challenger)
+# - Operational risk thresholds for inference
+# - Continuous Training governance policies
+#
+# The system follows a Champion/Challenger MLOps workflow:
+#
+#   TRAIN → Train candidates → TEST → Promote champion → UNSEEN → Feedback
+#
+# ======================================================
 
-model:
-  # Baseline classifier used in the training pipeline
-  type: random_forest
 
-  # Number of trees in the Random Forest ensemble
-  n_estimators: 100
+# ------------------------------------------------------
+# Candidate Models (Baseline + Challenger)
+# ------------------------------------------------------
 
-  # Maximum depth of each decision tree (controls complexity)
-  max_depth: 5
+models:
 
-  # Handle class imbalance by weighting minority classes more strongly
-  class_weight: balanced
+  # Baseline candidate: Logistic Regression
+  logistic:
+    enabled: true
+    max_iter: 1000
+
+  # Challenger candidate: Random Forest
+  forest:
+    enabled: true
+    n_estimators: 200
+    max_depth: 5
+    random_state: 42
+
+
+# ------------------------------------------------------
+# Operational Risk Thresholds (Inference)
+# ------------------------------------------------------
 
 risk_thresholds:
-  # Operational thresholds used during inference to map risk scores
-  # into qualitative decision levels (LOW / MEDIUM / HIGH)
+  # Risk scores produced by the classifier are mapped into
+  # qualitative operational levels.
 
   # Scores below this value are considered LOW risk
-  low: 0.2
+  low: 0.20
 
-  # Scores between low and medium are considered MEDIUM risk
-  medium: 0.6
+  # Scores between LOW and MEDIUM are considered MEDIUM risk
+  medium: 0.60
 
-continuous_training:
-  # Minimum acceptable accuracy for the active model.
-  # If performance drops below this threshold, retraining may be triggered.
-  min_accuracy: 0.7
+  # Scores above MEDIUM are considered HIGH risk
+  # (implicit: > medium)
 
-  # Safety-oriented metric: minimum recall required on the RISKY class.
-  # Model promotion only occurs if this metric improves.
-  min_recall_risky: 0.6
 
-  # Enable retraining when dataset drift or degradation is detected
-  retrain_on_drift: true
+# ------------------------------------------------------
+# Continuous Training Governance (MLOps Policies)
+# ------------------------------------------------------
+
+mlops:
+
+  # Safety-oriented promotion metric:
+  # Champion is selected by maximizing Recall on the RISKY class.
+  min_recall_risky: 0.60
+
+  # Feedback-driven retraining trigger:
+  # Retraining starts only if at least N unseen examples have been
+  # collected into the feedback pool.
+  feedback_trigger_size: 2
+
+  # Retrain automatically if no champion model exists yet
+  retrain_if_no_champion: true
+
+  # Promotion policy:
+  # A new candidate is promoted only if it improves over the current champion.
+  promote_only_if_better: true
+
+  # Reproducibility option (recommended for exams)
+  deterministic_runs: false
+

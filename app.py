@@ -1,14 +1,17 @@
 """
-Streamlit web application for SpecLens-PML.
+app.py
 
-This module is part of the SpecLens demo project:
-it provides an interactive graphical user interface (GUI)
-to run the full MLOps pipeline (dataset generation, training, inference)
-and analyze new Python files annotated with PML specifications.
+Streamlit web interface for SpecLens-PML.
 
-The goal is not to replace the command-line tools,
-but to showcase how the pipeline can be executed and explored
-through a lightweight frontend.
+This module provides a lightweight graphical frontend to:
+
+- Execute the full MLOps demo pipeline (train/test/promotion/inference)
+- Trigger the Continuous Training promotion step
+- Upload and analyze new Python files annotated with PML contracts
+
+The Streamlit GUI is a presentation layer only:
+all MLOps logic remains implemented in the CLI scripts
+(e.g., demo.py, ct_trigger.py, inference/predict.py).
 """
 
 from pathlib import Path
@@ -18,18 +21,18 @@ import streamlit as st
 
 
 # ---------------------------------------------------------------------------
-# Project root configuration
+# Repository root configuration
 # ---------------------------------------------------------------------------
 
-# Define the root directory of the repository
+#: Root directory of the SpecLens-PML repository.
 ROOT = Path(__file__).parent
 
-# Configure the Streamlit page layout and browser tab title
+# Configure the Streamlit page layout and browser tab title.
 st.set_page_config(page_title="SpecLens-PML", layout="wide")
 
 
 # ---------------------------------------------------------------------------
-# Main header
+# Main page header
 # ---------------------------------------------------------------------------
 
 st.title("SpecLens-PML")
@@ -37,12 +40,13 @@ st.caption("Data-driven Software Correctness with MLOps")
 
 
 # ---------------------------------------------------------------------------
-# Sidebar: MLOps controls
+# Sidebar controls: Pipeline execution
 # ---------------------------------------------------------------------------
 
 st.sidebar.header("MLOps Control")
 
-# Run the full end-to-end demo pipeline (dataset → training → inference)
+# Run the full end-to-end demo workflow:
+# dataset generation → training → promotion → unseen inference.
 if st.sidebar.button("Run full pipeline (demo)"):
     with st.spinner("Running full pipeline..."):
         result = subprocess.run(
@@ -55,7 +59,7 @@ if st.sidebar.button("Run full pipeline (demo)"):
     st.sidebar.success("Pipeline completed")
     st.sidebar.text(result.stdout)
 
-# Trigger continuous training and model promotion workflow
+# Trigger the Continuous Training promotion step only.
 if st.sidebar.button("Trigger Continuous Training"):
     with st.spinner("Triggering retraining..."):
         result = subprocess.run(
@@ -70,10 +74,10 @@ if st.sidebar.button("Trigger Continuous Training"):
 
 
 # ---------------------------------------------------------------------------
-# Sidebar: Active model display
+# Sidebar: Active champion model display
 # ---------------------------------------------------------------------------
 
-# The active model pointer defines which model is used for inference
+#: Pointer file storing the name of the currently promoted champion model.
 active_model_path = ROOT / "models" / "active_model.txt"
 
 if active_model_path.exists():
@@ -84,22 +88,23 @@ if active_model_path.exists():
 
 
 # ---------------------------------------------------------------------------
-# Main panel: Inference on uploaded files
+# Main panel: Inference on uploaded Python files
 # ---------------------------------------------------------------------------
 
 st.header("Analyze Python Code")
 
-# Upload a Python file annotated with PML contracts
+# Upload a Python file annotated with PML specifications.
 uploaded = st.file_uploader(
     "Upload a Python file annotated with PML",
     type="py",
 )
 
 if uploaded:
-    # Save the uploaded file temporarily inside the repository
+    # Save the uploaded file temporarily inside the repository.
     tmp_path = ROOT / "tmp_uploaded.py"
     tmp_path.write_bytes(uploaded.read())
 
+    # Run inference using the promoted champion model.
     with st.spinner("Analyzing code..."):
         result = subprocess.run(
             ["python3", "inference/predict.py", str(tmp_path)],
@@ -108,7 +113,7 @@ if uploaded:
             text=True,
         )
 
-    # Display the inference output produced by predict.py
+    # Display the prediction output produced by inference/predict.py.
     st.subheader("Analysis Result")
     st.code(result.stdout)
 

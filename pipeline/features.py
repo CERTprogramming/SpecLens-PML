@@ -34,7 +34,8 @@ def extract_features(func_info: dict) -> dict:
     Parameters
     ----------
     func_info : dict
-        Parsed metadata dictionary produced by pml.parser.
+        Parsed function metadata produced by
+        :func:`pml.parser.parse_file`.
 
     Returns
     -------
@@ -53,7 +54,11 @@ def extract_features(func_info: dict) -> dict:
         "n_params": len(params),
         "n_requires": len(requires),
         "n_ensures": len(ensures),
-        "n_invariants": len(func_info["invariant"]),
+
+        # Class-level invariants (if any)
+        "n_invariants": len(func_info.get("invariant", [])),
+
+        # Lines of code proxy
         "n_loc": func_info["n_loc"],
 
         # ----------------------------------------------------

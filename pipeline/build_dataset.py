@@ -33,6 +33,16 @@ from pml.parser import parse_file
 def load_module(path: Path):
     """
     Dynamically import a Python source file as a module.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the Python source file.
+
+    Returns
+    -------
+    module
+        Imported Python module object.
     """
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
@@ -46,9 +56,23 @@ def load_module(path: Path):
 
 def eval_expr(expr: str, env: dict) -> bool:
     """
-    Evaluate a boolean PML expression inside a restricted environment.
+    Evaluate a boolean PML contract expression.
 
-    If evaluation fails (syntax/runtime), the expression is treated as False.
+    The expression is evaluated in a restricted environment containing
+    only the variables in ``env``. If evaluation fails due to syntax
+    errors or runtime exceptions, the expression is treated as False.
+
+    Parameters
+    ----------
+    expr : str
+        Boolean expression extracted from a PML contract.
+    env : dict
+        Environment mapping variable names to runtime values.
+
+    Returns
+    -------
+    bool
+        True if the expression holds, False otherwise.
     """
     try:
         return bool(eval(expr, {}, env))
@@ -62,13 +86,28 @@ def eval_expr(expr: str, env: dict) -> bool:
 
 def generate_argument(param_name: str, obj=None):
     """
-    Simple type-aware argument generator.
+    Generate a randomized argument value for lightweight fuzzing.
 
-    Supports:
+    The generator uses simple heuristics based on parameter names.
+
+    Supported cases include:
+
     - integers (default)
-    - strings (s, text, name)
-    - lists (lst, values, items)
-    - Account-like objects (other)
+    - strings (``s``, ``text``, ``name``)
+    - lists (``lst``, ``values``, ``items``)
+    - Account-like objects (``other``)
+
+    Parameters
+    ----------
+    param_name : str
+        Name of the function parameter.
+    obj : optional
+        Instance of the enclosing object (for methods).
+
+    Returns
+    -------
+    object
+        Randomly generated argument value.
     """
 
     # Object parameter (e.g., Account.transfer_to)
@@ -93,11 +132,32 @@ def generate_argument(param_name: str, obj=None):
 
 def label_function(func_info, module, trials: int = 20) -> int:
     """
-    Assign a supervised label by executing the function dynamically.
+    Assign a supervised label to a function via dynamic execution.
 
-    Labels:
-    - 0 → SAFE   (no observed contract violation)
-    - 1 → RISKY  (runtime error or contract violation)
+    The function is executed multiple times with randomized inputs.
+    If any runtime failure or contract violation is observed, the
+    function is labeled as RISKY.
+
+    Labels
+    ------
+    0
+        SAFE (no observed violations)
+    1
+        RISKY (runtime error or contract violation)
+
+    Parameters
+    ----------
+    func_info : dict
+        Parsed function metadata produced by the PML parser.
+    module : module
+        Imported module containing the executable function.
+    trials : int, default=20
+        Number of randomized execution attempts.
+
+    Returns
+    -------
+    int
+        Supervised label (0 SAFE, 1 RISKY).
     """
 
     func = None
@@ -176,7 +236,24 @@ def label_function(func_info, module, trials: int = 20) -> int:
 
 def build_dataset(raw_dir: Path, out_path: Path):
     """
-    Build a full labeled dataset from annotated Python programs.
+    Build a labeled dataset from annotated Python programs.
+
+    The builder scans a directory of Python files, extracts contract-
+    annotated functions, computes feature vectors, dynamically labels
+    them as SAFE/RISKY, and writes the resulting dataset to CSV.
+
+    Parameters
+    ----------
+    raw_dir : Path
+        Directory containing annotated Python examples.
+    out_path : Path
+        Output path for the generated dataset CSV file.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Generated dataset containing features, labels, and source file
+        information.
     """
 
     rows = []

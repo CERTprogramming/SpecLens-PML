@@ -17,58 +17,57 @@ and builds an end-to-end **MLOps pipeline with feedback-driven retraining**:
 - Selects and promotes a champion model based on a safety-oriented metric  
 - Serves predictions as operational risk scores (`LOW`, `MEDIUM`, `HIGH`)  
 - Runs inference on previously unseen code and collects feedback examples  
-- Supports a simplified continuous learning loop (train → test → promote → feedback)  
-
-This closes the loop between **training, evaluation, promotion and deployment**,
-implementing a simplified but realistic continuous learning workflow.
-
-Unlike formal verification tools, SpecLens-PML does **not** aim to prove
-correctness.  
-Due to Python's dynamic nature (lack of strong static typing,
-runtime-dependent semantics), building an external prover is
-impractical.  
-SpecLens-PML embraces this reality and provides *probabilistic
-guidance*, helping developers identify risky functions before runtime
-failures occur.
-
-This repository demonstrates a **complete MLOps lifecycle**: data
-generation, training, evaluation, model selection/promotion, inference,
-feedback collection and user-facing serving.
+- Supports a simplified continuous learning loop (train → test → promote → feedback → retrain)  
 
 ------------------------------------------------------------------------
 
-## MLOps Feedback Pipeline
-
-SpecLens-PML implements a simplified but realistic **continuous learning**
-architecture, inspired by standard MLOps lifecycle patterns.
+## MLOps Feedback Loop
 
 ```mermaid
 flowchart TD
 
     A[Python Code + PML Contracts] --> B1[Build TRAIN dataset]
     A --> B2[Build TEST dataset]
-    B1 --> C1[datasets_train.csv]
-    B2 --> C2[datasets_test.csv]
 
-    C1 --> D[Train candidate models]
+    B1 --> D[Train candidate models]
     D --> E1[logistic.pkl]
     D --> E2[forest.pkl]
 
     E1 --> F[Continuous Training Trigger]
     E2 --> F
+    B2 --> F
 
-    C2 --> F
     F --> G[Champion model: best_model.pkl]
 
-    G --> H[Inference & Risk Scoring]
-    H --> I[Unseen code pool: raw_unseen/]
-    I --> J[Operational Levels: LOW / MEDIUM / HIGH]
-    J --> K[Feedback pool: raw_feedback/]
+    G --> H[Inference on UNSEEN pool]
+    H --> I[raw_unseen/]
+
+    H --> J[HIGH risk detected]
+    J --> K[raw_feedback/]
+
+    K --> B1
 ```
 
-This feedback closes the loop between **training, evaluation,
-promotion, inference and feedback**, reflecting real-world MLOps practice
-in safety-oriented systems.
+This diagram represents the full implemented workflow:
+feedback examples are collected and re-injected into TRAIN at the next run.
+
+------------------------------------------------------------------------
+
+## Resetting the Demo State
+
+To run the pipeline from scratch, use:
+
+```bash
+./reset.sh
+python3 demo.py
+```
+
+The reset script removes:
+- feedback pool
+- generated datasets
+- trained candidate + champion models
+
+Raw train/test/unseen pools remain untouched.
 
 ------------------------------------------------------------------------
 
@@ -98,15 +97,15 @@ more informative than isolated tests, but necessarily weaker than formal proofs.
 ```
 spec-lens-pml/
 ├── app.py                  # Streamlit web interface
+├── demo.py                 # End-to-end CLI demo (continuous learning)
 ├── ct_trigger.py           # Champion/Challenger evaluation + promotion
+├── reset.sh                # Reset pipeline state for a clean demo run
+├── config.yaml             # Central configuration (models + MLOps policies)
 ├── data/
 │   ├── raw_train/          # Training pool: annotated Python examples
 │   ├── raw_test/           # Test pool: held-out examples for evaluation
 │   ├── raw_unseen/         # Unseen pool: used only for inference
-│   ├── raw_feedback/       # Feedback pool: collected from high-risk unseen runs
-│   ├── _tmp_train/         # Internal staging area (created by demo.py)
-│   ├── datasets_train.csv  # Generated training dataset (features + labels)
-│   └── datasets_test.csv   # Generated test dataset (features + labels)
+│   └── raw_feedback/       # Feedback pool: collected from high-risk unseen runs
 ├── pml/
 │   └── parser.py           # AST + PML parser
 ├── pipeline/
@@ -114,26 +113,23 @@ spec-lens-pml/
 │   ├── features.py         # Shared feature extraction schema
 │   └── train.py            # Candidate model training (logistic / forest)
 ├── inference/
-│   └── predict.py          # Inference using models/best_model.pkl
+│   └── predict.py          # Inference using the champion model
 ├── models/
 │   ├── logistic.pkl        # Candidate model artifact (baseline)
 │   ├── forest.pkl          # Candidate model artifact (challenger)
 │   └── best_model.pkl      # Promoted champion model (used for inference)
-├── demo.py                 # End-to-end CLI demo (continuous learning)
 ├── requirements.txt
 └── README.md
 ```
 
 The repository is organized according to a standard MLOps separation of concerns:
-data generation, training, evaluation, inference, and deployment artifacts.
+data generation, training, evaluation, inference and deployment artifacts.
 
 Notes:
 
-- `data/_tmp_train/` is a staging folder created by `demo.py` to build the TRAIN dataset.
-  It typically contains a copy/merge of `raw_train/` plus any files in `raw_feedback/`.
-  You can delete it safely; it is regenerated on each run.
-- `data/datasets_v1.csv` (if present from older versions) is a legacy single-split dataset
-  and is not used by the current train/test/unseen pipeline.
+- Generated datasets (`datasets_train.csv`, `datasets_test.csv`) are created automatically
+  when running `demo.py` and are not part of the tracked repository state.
+- Temporary staging folders are internal runtime artifacts and are not documented here.
 
 ------------------------------------------------------------------------
 
@@ -144,16 +140,6 @@ def div(a, b):
     # @requires b != 0
     # @ensures result * b == a
     return a // b
-```
-
-```python
-class Account:
-    # @invariant self.balance >= 0
-
-    def withdraw(self, amount):
-        # @requires amount > 0
-        # @ensures self.balance >= 0
-        self.balance -= amount
 ```
 
 Supported annotations:
@@ -168,6 +154,7 @@ function body. The parser collects them from both locations.
 Expressions are a lightweight subset of Python boolean expressions.
 
 ------------------------------------------------------------------------
+
 
 ## Setup
 
@@ -281,18 +268,23 @@ This performs:
    python pipeline/build_dataset.py data/_tmp_train data/datasets_train.csv
    ```
 
-   - `demo.py` prepares `data/_tmp_train/` by combining:
+   - `demo.py` prepares a temporary staging folder automatically by combining:
      - `data/raw_train/` (base training pool)
-     - `data/raw_feedback/` (optional feedback pool, if present)
-   - `build_dataset.py` then:
-     - parses Python files with PML
-     - executes functions with generated inputs
-     - checks contracts dynamically
-     - assigns labels based on observed violations
-     - produces `datasets_train.csv`
+     - `data/raw_feedback/` (optional feedback pool collected from previous runs)
 
-   Note: labeling uses randomized input generation. Unless you seed the
-   random generator, repeated runs may produce slightly different labels and metrics.
+   - `build_dataset.py` then:
+     - parses Python files annotated with PML contracts
+     - executes functions with generated inputs
+     - checks pre/postconditions dynamically
+     - assigns labels based on observed contract violations
+     - produces the training dataset:
+
+     ```
+     data/datasets_train.csv
+     ```
+
+   Note: labeling uses randomized input generation. Unless you fix a seed,
+   repeated runs may produce slightly different labels and metrics.
 
 2. **Build TEST dataset**
 
@@ -300,8 +292,8 @@ This performs:
    python pipeline/build_dataset.py data/raw_test data/datasets_test.csv
    ```
 
-   - Produces a held-out dataset used only to compare candidate models
-   - This is the reference split for promotion decisions
+   - Produces a held-out dataset used only for candidate evaluation
+   - This split is never mixed into training
 
 3. **Train candidate models**
 
@@ -310,10 +302,16 @@ This performs:
    python pipeline/train.py data/datasets_train.csv --model forest
    ```
 
-   - Trains two different model families:
-     - Logistic Regression (baseline candidate)
-     - Random Forest (challenger candidate)
-   - Each candidate is saved under `models/`
+   - Trains two candidate model families:
+     - Logistic Regression (baseline)
+     - Random Forest (challenger)
+
+   - Candidate artifacts are saved under:
+
+     ```
+     models/logistic.pkl
+     models/forest.pkl
+     ```
 
 4. **Continuous Training Trigger (promotion)**
 
@@ -321,10 +319,10 @@ This performs:
    python ct_trigger.py data/datasets_test.csv
    ```
 
-   - Loads candidate artifacts (`models/logistic.pkl`, `models/forest.pkl`)
-   - Evaluates each candidate on the same held-out TEST dataset (`datasets_test.csv`)
+   - Loads candidate artifacts
+   - Evaluates each candidate on the held-out TEST dataset
    - Selects the champion by maximizing **Recall on the RISKY class**
-   - Promotes the winner as:
+   - Promotes the winner as the single serving artifact:
 
      ```
      models/best_model.pkl
@@ -340,12 +338,19 @@ This performs:
    - Produces:
      - per-function probability of being RISKY
      - operational level: `LOW`, `MEDIUM`, `HIGH`
+
    - `demo.py` runs inference on all files in `data/raw_unseen/`
    - If a high-risk function is detected, the file is copied into:
 
      ```
      data/raw_feedback/
      ```
+
+Re-running `demo.py` after collecting feedback automatically retrains the system
+with an expanded TRAIN pool (raw_train + raw_feedback), demonstrating a complete
+continuous learning loop:
+
+**train → test → promote → unseen → feedback → retrain**
 
 The demo is intentionally small-scale (educational) but follows the logic of
 real ML + MLOps systems: train on TRAIN, select on TEST, observe behavior on UNSEEN,
@@ -390,6 +395,98 @@ The Streamlit application reuses the same backend scripts:
 
 No MLOps logic is duplicated or altered. The GUI only changes *how the
 system is operated*, not *how it behaves*.
+
+------------------------------------------------------------------------
+
+## Continuous Integration with Jenkins (CI/CD Support)
+
+Although SpecLens-PML is an educational project, it is structured according
+to real MLOps engineering practices.  
+For this reason, the repository also includes support for **Jenkins-based
+Continuous Integration (CI)**.
+
+In modern MLOps systems, training and deployment should not rely on manual
+execution. Instead, pipelines are automated through CI/CD tools.
+
+Jenkins is widely used in industry to:
+
+- automate reproducible execution of ML workflows  
+- enforce governance rules (champion/challenger promotion)  
+- track artifacts and ensure traceability  
+- integrate training and evaluation into DevOps pipelines  
+
+In SpecLens-PML, Jenkins is used to simulate a minimal CI loop for the
+continuous learning workflow.
+
+The provided `Jenkinsfile` automates the full end-to-end pipeline:
+
+1. **Repository checkout**  
+   Pulls the latest version of the project from Git.
+
+2. **Environment setup**  
+   Creates a clean Python virtual environment and installs dependencies.
+
+3. **Reset demo state**  
+   Executes `reset.sh` to remove:
+
+   - feedback examples  
+   - generated datasets  
+   - trained candidate models  
+   - promoted champion model  
+
+   This guarantees reproducibility of each CI run.
+
+4. **Run the full demo pipeline**
+
+   ```bash
+   python3 demo.py
+   ```
+
+   This triggers:
+
+   - TRAIN dataset generation (raw_train + feedback)
+   - TEST dataset generation (held-out)
+   - candidate training (logistic + forest)
+   - champion promotion via `ct_trigger.py`
+   - inference on unseen examples + feedback collection
+
+5. **Governance verification**
+
+   Jenkins ensures that a promoted model artifact exists:
+
+   ```
+   models/best_model.pkl
+   ```
+
+6. **Artifact archiving**
+
+   The pipeline archives all key ML artifacts for traceability:
+
+   - trained candidate models
+   - champion model
+   - generated datasets
+
+To run the CI pipeline:
+
+1. Install Jenkins locally or use a Jenkins server
+2. Create a new Pipeline project
+3. Connect it to this GitHub repository
+4. Ensure the pipeline uses the included `Jenkinsfile`
+5. Run the build
+
+Each build will automatically execute the full SpecLens-PML continuous
+training workflow from scratch.
+
+This integration demonstrates how a specification-driven ML system can be
+embedded into a real CI/CD process:
+
+- dataset generation becomes a CI stage  
+- model training becomes an automated job  
+- promotion becomes a governance decision  
+- inference produces operational feedback  
+
+Even in a simplified form, this reflects the core principles of modern
+MLOps deployment pipelines.
 
 ------------------------------------------------------------------------
 
@@ -527,3 +624,4 @@ Possible next steps include:
 With these extensions, SpecLens-PML could serve as a strong foundation
 for a thesis focused on **data-driven software correctness**,
 continuous verification and modern MLOps governance for safety-oriented systems.
+

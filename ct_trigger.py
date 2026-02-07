@@ -1,55 +1,113 @@
 """
 Continuous Training Trigger for SpecLens-PML.
 
-Implements a Champion/Challenger strategy:
+This module implements a simple Champion/Challenger governance strategy:
 
 - Multiple candidate models are trained (logistic, forest).
 - Each candidate is evaluated on the same held-out TEST dataset.
-- The model with best Recall on the RISKY class is promoted.
+- The model with the best Recall on the RISKY class is promoted.
 
-The promoted model is always saved as:
+Promotion occurs only if:
+
+- Recall(RISKY) >= configured minimum threshold
+
+The promoted champion model is always saved as:
 
     models/best_model.pkl
-
-This ensures inference always uses the best available model.
 """
 
-import sys
+from pathlib import Path
+
 import joblib
 import pandas as pd
-from pathlib import Path
+import yaml
 
 from pipeline.train import evaluate_model
 
 
-# ------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Paths and Configuration
+# ---------------------------------------------------------------------------
 
+#: Directory containing all trained candidate and champion model artifacts.
 MODELS_DIR = Path("models")
 
+#: Candidate model registry (baseline + challenger).
 CANDIDATES = {
     "logistic": MODELS_DIR / "logistic.pkl",
     "forest": MODELS_DIR / "forest.pkl",
 }
 
+#: Path where the promoted champion model is stored.
 BEST_MODEL_PATH = MODELS_DIR / "best_model.pkl"
 
+#: Central configuration file defining MLOps governance rules.
+CONFIG_PATH = Path("config.yaml")
 
-# ------------------------------------------------------------
-# Trigger logic
-# ------------------------------------------------------------
 
-def main(test_dataset_path: Path):
+# ---------------------------------------------------------------------------
+# Configuration Loader
+# ---------------------------------------------------------------------------
+
+def load_config() -> dict:
+    """
+    Load continuous training governance rules from ``config.yaml``.
+
+    Returns
+    -------
+    dict
+        Parsed YAML configuration dictionary.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the configuration file is missing.
+    """
+    if not CONFIG_PATH.exists():
+        raise FileNotFoundError("Missing config.yaml")
+
+    with open(CONFIG_PATH, "r") as f:
+        return yaml.safe_load(f)
+
+
+# ---------------------------------------------------------------------------
+# Continuous Training Trigger Logic
+# ---------------------------------------------------------------------------
+
+def main(test_dataset: Path) -> None:
+    """
+    Execute the Continuous Training Trigger.
+
+    This function evaluates all available candidate models on the held-out
+    TEST dataset and promotes the best-performing one according to the
+    safety-oriented metric: Recall on the RISKY class.
+
+    Parameters
+    ----------
+    test_dataset : Path
+        Path to the held-out TEST dataset CSV used for candidate evaluation.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the TEST dataset file does not exist.
+    """
     print("=== Continuous Training Trigger ===")
 
-    # --------------------------------------------------------
-    # Load TEST dataset (held-out evaluation set)
-    # --------------------------------------------------------
-    if not test_dataset_path.exists():
-        raise FileNotFoundError(f"Test dataset not found: {test_dataset_path}")
+    cfg = load_config()
 
-    df = pd.read_csv(test_dataset_path)
+    governance = cfg.get("continuous_training", {})
+    min_recall = governance.get("min_recall_risky", 0.0)
+
+    print(f"Minimum Recall(RISKY) required for promotion: {min_recall:.3f}")
+
+    # -----------------------------------------------------------------------
+    # Load TEST dataset (held-out evaluation set)
+    # -----------------------------------------------------------------------
+    if not test_dataset.exists():
+        raise FileNotFoundError(f"Test dataset not found: {test_dataset}")
+
+    df = pd.read_csv(test_dataset)
 
     feature_cols = [
         c for c in df.columns
@@ -63,9 +121,9 @@ def main(test_dataset_path: Path):
     best_recall = -1.0
     best_model = None
 
-    # --------------------------------------------------------
+    # -----------------------------------------------------------------------
     # Evaluate all candidate models
-    # --------------------------------------------------------
+    # -----------------------------------------------------------------------
     for name, path in CANDIDATES.items():
 
         if not path.exists():
@@ -85,30 +143,41 @@ def main(test_dataset_path: Path):
             best_name = name
             best_model = model
 
-    # --------------------------------------------------------
-    # Promote best model
-    # --------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Promotion Decision
+    # -----------------------------------------------------------------------
     if best_model is None:
         print("\nNo valid candidate models found.")
         return
 
+    print("\n=== Promotion Decision ===")
+    print(f"Best candidate: {best_name}")
+    print(f"Best Recall (RISKY): {best_recall:.3f}")
+
+    if best_recall < min_recall:
+        print("\nPromotion blocked: minimum safety threshold not met.")
+        print("No model was promoted.")
+        return
+
+    # Promote champion model
     joblib.dump(best_model, BEST_MODEL_PATH)
 
     print("\n=== Promotion Result ===")
-    print(f"Best model: {best_name}")
-    print(f"Best Recall (RISKY): {best_recall:.3f}")
-    print(f"Promoted as: {BEST_MODEL_PATH}")
+    print(f"Champion model promoted: {BEST_MODEL_PATH}")
+    print(f"Active champion: {best_name}")
 
 
-# ------------------------------------------------------------
-# CLI entry point
-# ------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# CLI Entry Point
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+
+    import sys
+
     if len(sys.argv) != 2:
-        print("Usage: python ct_trigger.py <test_dataset.csv>")
+        print("Usage: python ct_trigger.py <datasets_test.csv>")
         sys.exit(1)
 
-    test_path = Path(sys.argv[1])
-    main(test_path)
+    main(Path(sys.argv[1]))
 

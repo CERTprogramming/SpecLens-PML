@@ -4,6 +4,9 @@
 
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+
 
 # ======================================================
 # Virtual environments
@@ -13,41 +16,45 @@ __pycache__/
 venv/
 env/
 
+
 # ======================================================
 # OS / Editor files
 # ======================================================
 
 .DS_Store
 Thumbs.db
+
 .vscode/
 .idea/
 
+
 # ======================================================
-# Logs / temp
+# Logs / temporary outputs
 # ======================================================
 
 *.log
 *.tmp
 
+
 # ======================================================
-# Dataset artifacts (generated)
+# Generated datasets (pipeline outputs)
 # ======================================================
 
 data/*.csv
 
-# Temporary training staging directory
-data/_tmp_train/
-
-# Feedback pool is optional (can be regenerated)
-data/raw_feedback/
-
-# ======================================================
-# Keep raw annotated examples tracked
-# ======================================================
-
+# Keep only raw annotated examples tracked
 !data/raw_train/*.py
 !data/raw_test/*.py
 !data/raw_unseen/*.py
+!data/raw_feedback/*.py
+
+
+# ======================================================
+# Temporary training staging area
+# ======================================================
+
+data/_tmp_train/
+
 
 # ======================================================
 # Model artifacts (generated)
@@ -55,15 +62,9 @@ data/raw_feedback/
 
 models/*.pkl
 
-# If you want to keep the promoted champion tracked, uncomment:
-# !models/best_model.pkl
+# Keep only the promoted champion pointer if needed
+!models/best_model.pkl
 
-# ======================================================
-# Documentation builds
-# ======================================================
-
-docs/build/
-docs/_build/
 
 # ======================================================
 # Packaging artifacts
@@ -73,12 +74,35 @@ docs/_build/
 dist/
 build/
 
+
+# ======================================================
+# Documentation builds (Sphinx)
+# ======================================================
+
+docs/_build/
+docs/build/
+
+
+# ======================================================
+# Streamlit cache / secrets
+# ======================================================
+
+.streamlit/secrets.toml
+.streamlit/cache/
+
+
 # ======================================================
 # Security / secrets
 # ======================================================
 
 .env
+*.token
 *.key
 *.pem
-*.token
+
+# ======================================================
+# Jenkins local secrets
+# ======================================================
+
+Jenkinspassword
 

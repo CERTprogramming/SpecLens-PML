@@ -1,120 +1,144 @@
 """
-SpecLens-PML Inference Script.
+Inference module for SpecLens-PML.
 
-This module is part of the SpecLens demo project:
-it performs inference on annotated Python functions.
+This script performs inference using the promoted champion model
+(`models/best_model.pkl`).
 
-The script loads the promoted production model:
+Given a Python source file annotated with PML contracts, it:
 
-    models/best_model.pkl
+- Parses all contract-annotated functions
+- Extracts the same feature schema used during training
+- Predicts the probability of being RISKY
+- Maps probabilities into operational risk levels:
 
-Then, for every function annotated with PML contracts in the input file,
-it extracts features and predicts a risk score (SAFE vs RISKY).
+    LOW / MEDIUM / HIGH
 
-Feature extraction is shared with training via pipeline/features.py,
-ensuring schema consistency across the pipeline.
+This module represents the *serving* component of the pipeline.
 """
 
-import sys
 from pathlib import Path
-
 import joblib
 import pandas as pd
+import yaml
 
-from pml.parser import parse_file
 from pipeline.features import extract_features
+from pml.parser import parse_file
 
 
 # ---------------------------------------------------------------------------
-# Load promoted best model
+# Configuration loader
 # ---------------------------------------------------------------------------
 
-BEST_MODEL_PATH = Path("models/best_model.pkl")
-
-if not BEST_MODEL_PATH.exists():
-    raise FileNotFoundError(
-        "No promoted model found.\n"
-        "Run the pipeline first:\n"
-        "   python demo.py"
-    )
-
-model = joblib.load(BEST_MODEL_PATH)
-
-
-# ---------------------------------------------------------------------------
-# Risk interpretation helper
-# ---------------------------------------------------------------------------
-
-def risk_level(score: float) -> str:
+def load_thresholds() -> tuple[float, float]:
     """
-    Convert a probability score into a human-readable risk level.
+    Load risk threshold values from the central configuration file.
+
+    Thresholds are defined in ``config.yaml`` under:
+
+    - ``risk_thresholds.low``
+    - ``risk_thresholds.medium``
+
+    Returns
+    -------
+    tuple[float, float]
+        A tuple ``(low, medium)`` used to map probability scores
+        into operational levels.
     """
-    if score > 0.7:
-        return "HIGH"
-    if score > 0.3:
+    config = yaml.safe_load(Path("config.yaml").read_text())
+
+    low = config["risk_thresholds"]["low"]
+    medium = config["risk_thresholds"]["medium"]
+
+    return low, medium
+
+
+# ---------------------------------------------------------------------------
+# Risk level mapping
+# ---------------------------------------------------------------------------
+
+def risk_level(score: float, low: float, medium: float) -> str:
+    """
+    Convert a probability score into an operational risk category.
+
+    Parameters
+    ----------
+    score : float
+        Predicted probability of the function being RISKY.
+    low : float
+        Threshold below which the function is considered LOW risk.
+    medium : float
+        Threshold below which the function is considered MEDIUM risk.
+
+    Returns
+    -------
+    str
+        One of: ``"LOW"``, ``"MEDIUM"``, or ``"HIGH"``.
+    """
+    if score < low:
+        return "LOW"
+    elif score < medium:
         return "MEDIUM"
-    return "LOW"
+    else:
+        return "HIGH"
 
 
 # ---------------------------------------------------------------------------
-# Main inference routine
+# Main prediction entry point
 # ---------------------------------------------------------------------------
 
-def predict_file(path: Path):
+def predict_file(path: Path) -> None:
     """
-    Run inference on all annotated functions inside a Python source file.
+    Run inference on all contract-annotated functions in a Python file.
+
+    The function:
+
+    - Loads the promoted champion model (`best_model.pkl`)
+    - Parses the input file using the PML parser
+    - Extracts feature vectors
+    - Predicts risk probabilities
+    - Prints a per-function risk report
+
+    Parameters
+    ----------
+    path : Path
+        Path to the Python source file to analyze.
     """
     print(f"Analysis of {path.name}")
-    print(f"(active model: {BEST_MODEL_PATH.name})\n")
+    print("(active model: best_model.pkl)\n")
 
-    # Parse annotated functions from the source file
+    # Load thresholds from config.yaml
+    low_t, med_t = load_thresholds()
+
+    # Load champion model artifact
+    model = joblib.load("models/best_model.pkl")
+
+    # Parse contract-annotated functions from file
     functions = parse_file(path)
 
-    # Load dataset reference to ensure feature schema alignment
-    dataset = pd.read_csv("data/datasets_v1.csv")
-
-    feature_cols = [
-        c for c in dataset.columns
-        if c not in ("name", "class", "source_file", "label")
-    ]
-
-    # --------------------------------------------------------
-    # Predict risk score for each function
-    # --------------------------------------------------------
     for f in functions:
-
-        # Skip dunder methods (e.g., __init__)
-        if f["name"].startswith("__") and f["name"].endswith("__"):
-            continue
-
-        # Extract numeric features from the parsed contract data
         feats = extract_features(f)
 
-        # Align feature vector with the training schema
-        row = {col: 0 for col in feature_cols}
-        row.update(feats)
+        X = pd.DataFrame([feats])
+        score = model.predict_proba(X)[0][1]
 
-        X = pd.DataFrame([row])
+        level = risk_level(score, low_t, med_t)
 
-        # Predict probability of the RISKY class
-        prob_risky = model.predict_proba(X)[0][1]
-        level = risk_level(prob_risky)
-
-        # Print structured report
         print(f"- {f['name']} (line {f['line']})")
         print(f"  requires: {f['requires']}")
         print(f"  ensures:  {f['ensures']}")
         print(f"  invariant:{f['invariant']}")
-        print(f"  → risk score: {prob_risky:.3f} [{level}]\n")
+        print(f"  → risk score: {score:.3f} [{level}]\n")
 
 
 # ---------------------------------------------------------------------------
-# CLI entry point
+# CLI Entry Point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import sys
+
     if len(sys.argv) != 2:
-        print("Usage: python predict.py <python_file>")
+        print("Usage: python inference/predict.py <file.py>")
         sys.exit(1)
 
     predict_file(Path(sys.argv[1]))

@@ -1,31 +1,31 @@
 """
-SpecLens-PML Model Training.
+Model training module for SpecLens-PML.
 
 This script implements the supervised learning stage of the pipeline.
 
-It trains multiple candidate models (baseline + challenger), including:
+It supports multiple candidate models (Champion/Challenger setup):
 
-- Logistic Regression (baseline)
-- Random Forest (challenger)
+- Logistic Regression (baseline candidate)
+- Random Forest (challenger candidate)
 
-Each trained model is saved as an independent artifact so that the
-Continuous Training trigger (ct_trigger.py) can later evaluate and
-promote the best-performing one.
+Hyperparameters are loaded from the central configuration file
+``config.yaml``.
 
-The key metric for promotion is:
+Each trained candidate model is saved separately under ``models/``:
 
-    Recall on the RISKY class (label = 1)
+    - models/logistic.pkl
+    - models/forest.pkl
+
+Continuous Training later evaluates all candidates on the held-out TEST set
+and promotes the best-performing model based on **Recall on the RISKY class**.
 """
-
-# ---------------------------------------------------------------------------
-# Imports
-# ---------------------------------------------------------------------------
 
 import argparse
 from pathlib import Path
 
 import joblib
 import pandas as pd
+import yaml
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, recall_score
@@ -34,64 +34,108 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 
 
-# ---------------------------------------------------------------------------
-# Model Factory
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------
+# Configuration Loader
+# ------------------------------------------------------------
 
-def build_model(model_type: str):
+CONFIG_PATH = Path("config.yaml")
+
+
+def load_config():
     """
-    Construct a classifier given its type.
+    Load the central YAML configuration file.
 
-    Supported models
-    ----------------
-    logistic : LogisticRegression baseline
-    forest   : RandomForest challenger
+    Returns
+    -------
+    dict
+        Parsed configuration dictionary containing model parameters
+        and governance policies.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``config.yaml`` is missing from the repository root.
+    """
+    if not CONFIG_PATH.exists():
+        raise FileNotFoundError("Missing config.yaml")
+
+    with open(CONFIG_PATH, "r") as f:
+        return yaml.safe_load(f)
+
+
+# ------------------------------------------------------------
+# Model Factory
+# ------------------------------------------------------------
+
+def build_model(model_type: str, cfg: dict):
+    """
+    Construct a candidate classifier given its type and YAML configuration.
 
     Parameters
     ----------
     model_type : str
-        Identifier of the model type.
+        Candidate model identifier (``logistic`` or ``forest``).
+
+    cfg : dict
+        Configuration dictionary loaded from ``config.yaml``.
 
     Returns
     -------
-    sklearn estimator
-        Instantiated classifier ready for training.
+    sklearn.base.BaseEstimator
+        Instantiated scikit-learn classifier.
+
+    Raises
+    ------
+    ValueError
+        If the requested model type is not supported.
     """
 
+    models_cfg = cfg.get("models", {})
+
     if model_type == "logistic":
-        return LogisticRegression(max_iter=1000)
+        params = models_cfg.get("logistic", {})
+        return LogisticRegression(
+            max_iter=params.get("max_iter", 1000)
+        )
 
     if model_type == "forest":
+        params = models_cfg.get("forest", {})
         return RandomForestClassifier(
-            n_estimators=200,
-            max_depth=5,
-            random_state=42,
+            n_estimators=params.get("n_estimators", 200),
+            max_depth=params.get("max_depth", 5),
+            random_state=params.get("random_state", 42),
         )
 
     raise ValueError(f"Unknown model type: {model_type}")
 
 
-# ---------------------------------------------------------------------------
-# Evaluation Helper (shared with ct_trigger.py)
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------
+# Evaluation Helper
+# ------------------------------------------------------------
 
-def evaluate_model(model, X_test, y_test) -> float:
+def evaluate_model(model, X_test, y_test):
     """
-    Evaluate a trained model and return Recall on the RISKY class.
+    Evaluate a trained model on a validation or TEST dataset.
+
+    The primary governance metric for SpecLens-PML is:
+
+        Recall on the RISKY class (label = 1)
 
     Parameters
     ----------
-    model :
+    model : sklearn.base.BaseEstimator
         Trained classifier.
-    X_test :
-        Feature matrix for validation.
-    y_test :
-        Ground truth labels.
+
+    X_test : pandas.DataFrame
+        Feature matrix.
+
+    y_test : pandas.Series
+        Ground-truth labels (0 = SAFE, 1 = RISKY).
 
     Returns
     -------
     float
-        Recall score for the RISKY class (label = 1).
+        Recall score for the RISKY class.
     """
 
     y_pred = model.predict(X_test)
@@ -105,34 +149,37 @@ def evaluate_model(model, X_test, y_test) -> float:
     return recall_risky
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------
 # Training Procedure
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------
 
-def train(dataset_path: Path, model_type: str) -> float:
+def train(dataset_path: Path, model_type: str):
     """
-    Train a candidate model on the generated dataset.
+    Train a candidate model on the generated TRAIN dataset.
 
-    The trained artifact is saved as:
+    This procedure:
 
-        models/{model_type}.pkl
+    1. Loads the dataset artifact (datasets_train.csv)
+    2. Splits it into training/validation subsets (diagnostic only)
+    3. Trains the selected candidate model family
+    4. Saves the trained artifact under ``models/``
 
     Parameters
     ----------
     dataset_path : Path
-        Path to the CSV dataset produced by build_dataset.py.
+        Path to the generated TRAIN dataset CSV.
+
     model_type : str
-        Candidate model identifier ("logistic" or "forest").
+        Candidate model type (``logistic`` or ``forest``).
 
     Returns
     -------
     float
-        Recall score on the RISKY class.
+        Validation Recall score on the RISKY class.
     """
 
-    # --------------------------------------------------------
-    # Load dataset
-    # --------------------------------------------------------
+    cfg = load_config()
+
     df = pd.read_csv(dataset_path)
 
     # Features = all numeric columns except metadata + label
@@ -144,61 +191,55 @@ def train(dataset_path: Path, model_type: str) -> float:
     X = df[feature_cols]
     y = df["label"]
 
-    # --------------------------------------------------------
-    # Train / validation split
-    # --------------------------------------------------------
-    X_train, X_test, y_train, y_test = train_test_split(
+    # Internal validation split (inside TRAIN pool, diagnostic only)
+    X_train, X_val, y_train, y_val = train_test_split(
         X,
         y,
         test_size=0.3,
         random_state=42,
-        stratify=y,
+        stratify=y
     )
 
-    # --------------------------------------------------------
-    # Build and train model
-    # --------------------------------------------------------
-    model = build_model(model_type)
+    # Build candidate model instance
+    model = build_model(model_type, cfg)
+
+    # Fit model on TRAIN subset
     model.fit(X_train, y_train)
 
-    # --------------------------------------------------------
-    # Evaluate candidate
-    # --------------------------------------------------------
-    recall_risky = evaluate_model(model, X_test, y_test)
+    # Evaluate on validation subset
+    recall_risky = evaluate_model(model, X_val, y_val)
 
-    # --------------------------------------------------------
-    # Save trained artifact
-    # --------------------------------------------------------
+    # Save candidate artifact
     models_dir = Path("models")
     models_dir.mkdir(exist_ok=True)
 
     out_path = models_dir / f"{model_type}.pkl"
     joblib.dump(model, out_path)
 
-    print(f"\nModel saved to {out_path}")
+    print(f"\nCandidate model saved to: {out_path}")
 
     return recall_risky
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------
 # CLI Entry Point
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(
         description="Train a candidate model for SpecLens-PML."
     )
 
     parser.add_argument(
         "dataset",
-        help="Path to the CSV dataset generated by build_dataset.py",
+        help="Path to the generated TRAIN dataset CSV"
     )
 
     parser.add_argument(
         "--model",
-        default="logistic",
-        help="Model type: logistic or forest",
+        required=True,
+        choices=["logistic", "forest"],
+        help="Candidate model family to train"
     )
 
     args = parser.parse_args()
