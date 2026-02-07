@@ -1,12 +1,50 @@
+# =========================================================
+# SpecLens-PML Jenkins CI Image
+# =========================================================
+#
+# This custom Jenkins image extends the official Jenkins LTS
+# distribution by adding Python support.
+#
+# SpecLens requires Python inside Jenkins because the pipeline
+# executes the full ML workflow:
+#
+#   - dataset generation
+#   - model training
+#   - continuous promotion
+#   - inference + feedback collection
+#
+# Without Python installed, Jenkins cannot run demo.py.
+# =========================================================
+
+# Base Jenkins Long-Term Support image
 FROM jenkins/jenkins:lts
 
+
+# ---------------------------------------------------------
+# Switch to root user
+# ---------------------------------------------------------
+# The default Jenkins user cannot install system packages,
+# so we temporarily escalate privileges.
 USER root
 
+
+# ---------------------------------------------------------
+# Install Python runtime + tools
+# ---------------------------------------------------------
+# Needed for:
+# - python3 execution
+# - virtual environments (.venv)
+# - pip dependency installation
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-venv \
     python3-pip \
     && apt-get clean
 
+
+# ---------------------------------------------------------
+# Return to Jenkins user (security best practice)
+# ---------------------------------------------------------
+# Jenkins should not run as root during CI execution.
 USER jenkins
 
