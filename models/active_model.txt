@@ -1,1 +1,0 @@
-models/model_v1.pkl

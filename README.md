@@ -12,13 +12,14 @@ and builds an end-to-end **MLOps pipeline with feedback-driven retraining**:
 - Ingests Python code annotated with PML contracts  
 - Treats code and specifications as structured data  
 - Generates labeled datasets through dynamic execution and contract checking  
-- Trains and versions machine learning models automatically  
+- Trains multiple candidate machine learning models automatically (baseline + challenger)  
+- Evaluates candidates on a held-out TEST set (separate from training)  
+- Selects and promotes a champion model based on a safety-oriented metric  
 - Serves predictions as operational risk scores (`LOW`, `MEDIUM`, `HIGH`)  
-- Monitors safety-oriented metrics (e.g., recall on risky functions)  
-- Automatically triggers retraining when model performance degrades  
-- Promotes new models only if they improve over the active one  
+- Runs inference on previously unseen code and collects feedback examples  
+- Supports a simplified continuous learning loop (train → test → promote → feedback)  
 
-This closes the loop between **training, monitoring and deployment**,
+This closes the loop between **training, evaluation, promotion and deployment**,
 implementing a simplified but realistic continuous learning workflow.
 
 Unlike formal verification tools, SpecLens-PML does **not** aim to prove
@@ -31,8 +32,8 @@ guidance*, helping developers identify risky functions before runtime
 failures occur.
 
 This repository demonstrates a **complete MLOps lifecycle**: data
-generation, training, versioning, inference, monitoring, continuous
-retraining and user-facing serving.
+generation, training, evaluation, model selection/promotion, inference,
+feedback collection and user-facing serving.
 
 ------------------------------------------------------------------------
 
@@ -44,32 +45,30 @@ architecture, inspired by standard MLOps lifecycle patterns.
 ```mermaid
 flowchart TD
 
-    A[Python Code + PML Contracts] --> B[Dataset Generation]
-    B --> C[Labeled Dataset Versioning]
-    C --> D[Model Training Pipeline]
-    D --> E[Model Registry: model_vN.pkl]
+    A[Python Code + PML Contracts] --> B1[Build TRAIN dataset]
+    A --> B2[Build TEST dataset]
+    B1 --> C1[datasets_train.csv]
+    B2 --> C2[datasets_test.csv]
 
-    E --> F[Active Model Pointer: active_model.txt]
-    F --> G[Inference & Risk Scoring]
+    C1 --> D[Train candidate models]
+    D --> E1[logistic.pkl]
+    D --> E2[forest.pkl]
 
-    G --> H[Operational Thresholds<br/>LOW / MEDIUM / HIGH]
-    H --> I[Monitoring & Evaluation<br/>Recall on RISKY class]
+    E1 --> F[Continuous Training Trigger]
+    E2 --> F
 
-    I --> J{Performance degraded?}
+    C2 --> F
+    F --> G[Champion model: best_model.pkl]
 
-    J -- No --> G
-    J -- Yes --> K[Continuous Training Trigger<br/>ct_trigger.py]
-
-    K --> D
-    K --> L[Model Promotion Decision]
-
-    L -- Improved --> F
-    L -- Not improved --> E
+    G --> H[Inference & Risk Scoring]
+    H --> I[Unseen code pool: raw_unseen/]
+    I --> J[Operational Levels: LOW / MEDIUM / HIGH]
+    J --> K[Feedback pool: raw_feedback/]
 ```
 
-This feedback closes the loop between **training, monitoring,
-retraining and controlled deployment**, reflecting real-world MLOps
-practice in safety-oriented systems.
+This feedback closes the loop between **training, evaluation,
+promotion, inference and feedback**, reflecting real-world MLOps practice
+in safety-oriented systems.
 
 ------------------------------------------------------------------------
 
@@ -79,15 +78,15 @@ SpecLens-PML intentionally operates in the space between traditional
 software testing and full formal verification:
 
 - Like testing, it relies on **dynamic execution** and observed runtime behavior
-- Like specification-based methods, it uses **contracts** (`requires/ensures`)
+- Like specification-based methods, it uses **contracts** (`requires/ensures/invariant`)
   as structured semantic signals
 
 However, unlike theorem provers or static analyzers, SpecLens-PML does not
 provide mathematical guarantees of correctness.
 
 Instead, it offers a **probabilistic notion of confidence**:
-a data-driven feedback loop that helps software systems *tend toward correctness*
-by identifying risky functions earlier and continuously improving models over time.
+a data-driven loop that helps highlight potentially risky functions,
+and improves by incorporating new examples over time.
 
 In this sense, SpecLens-PML represents an intermediate approach:
 more informative than isolated tests, but necessarily weaker than formal proofs.
@@ -99,28 +98,42 @@ more informative than isolated tests, but necessarily weaker than formal proofs.
 ```
 spec-lens-pml/
 ├── app.py                  # Streamlit web interface
-├── config.yaml             # Centralized system configuration
-├── ct_trigger.py           # Continuous Training & promotion engine
+├── ct_trigger.py           # Champion/Challenger evaluation + promotion
 ├── data/
-│   ├── raw/                # Python files annotated with PML
-│   └── datasets_v1.csv     # Generated dataset (versioned)
+│   ├── raw_train/          # Training pool: annotated Python examples
+│   ├── raw_test/           # Test pool: held-out examples for evaluation
+│   ├── raw_unseen/         # Unseen pool: used only for inference
+│   ├── raw_feedback/       # Feedback pool: collected from high-risk unseen runs
+│   ├── _tmp_train/         # Internal staging area (created by demo.py)
+│   ├── datasets_train.csv  # Generated training dataset (features + labels)
+│   └── datasets_test.csv   # Generated test dataset (features + labels)
 ├── pml/
 │   └── parser.py           # AST + PML parser
 ├── pipeline/
-│   ├── build_dataset.py    # Data generation and labeling
-│   └── train.py            # Model training (version-aware)
+│   ├── build_dataset.py    # Data generation + dynamic labeling
+│   ├── features.py         # Shared feature extraction schema
+│   └── train.py            # Candidate model training (logistic / forest)
 ├── inference/
-│   └── predict.py          # Inference using the active model
+│   └── predict.py          # Inference using models/best_model.pkl
 ├── models/
-│   ├── model_vN.pkl        # Versioned model artifacts
-│   └── active_model.txt    # Pointer to the active model
-├── demo.py                 # End-to-end CLI demo script
+│   ├── logistic.pkl        # Candidate model artifact (baseline)
+│   ├── forest.pkl          # Candidate model artifact (challenger)
+│   └── best_model.pkl      # Promoted champion model (used for inference)
+├── demo.py                 # End-to-end CLI demo (continuous learning)
 ├── requirements.txt
 └── README.md
 ```
 
 The repository is organized according to a standard MLOps separation of concerns:
-data generation, training, inference, monitoring and deployment artifacts.
+data generation, training, evaluation, inference, and deployment artifacts.
+
+Notes:
+
+- `data/_tmp_train/` is a staging folder created by `demo.py` to build the TRAIN dataset.
+  It typically contains a copy/merge of `raw_train/` plus any files in `raw_feedback/`.
+  You can delete it safely; it is regenerated on each run.
+- `data/datasets_v1.csv` (if present from older versions) is a legacy single-split dataset
+  and is not used by the current train/test/unseen pipeline.
 
 ------------------------------------------------------------------------
 
@@ -149,6 +162,9 @@ Supported annotations:
 - `@ensures <expr>` -- postconditions  
 - `@invariant <expr>` -- class invariants
 
+Contracts may be placed immediately above a definition or inside the
+function body. The parser collects them from both locations.
+
 Expressions are a lightweight subset of Python boolean expressions.
 
 ------------------------------------------------------------------------
@@ -162,7 +178,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies (standard option):
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -173,7 +189,6 @@ pip install -r requirements.txt
 ```txt
 joblib
 pandas
-pyyaml
 scikit-learn
 sphinx
 sphinx-rtd-theme
@@ -186,15 +201,8 @@ Install dependencies (package-style installation option):
 pip install -e .
 ```
 
-This enables clean imports across the repository (e.g., import pml)
-without relying on manual sys.path modifications.
-
-Initialize the active model. This file defines which model is used during inference:
-
-```bash
-# Only required the first time
-echo "models/model_v1.pkl" > models/active_model.txt
-```
+This enables clean imports across the repository (e.g., `import pml`)
+without relying on manual `sys.path` modifications.
 
 ------------------------------------------------------------------------
 
@@ -216,8 +224,8 @@ sphinx-quickstart docs
 sphinx-apidoc -o docs/source pml pipeline inference
 ```
 
-Sphinx only documents importable Python packages, to add new source folders, include them explicitly.
-To support automatic module documentation make sure that `docs/source/conf.py` imports the SpecLens-PML modules:
+Sphinx only documents importable Python packages. To support automatic module
+documentation, ensure that `docs/source/conf.py` can import the SpecLens-PML modules:
 
 ```python
 import os
@@ -225,10 +233,7 @@ import sys
 sys.path.insert(0, os.path.abspath("../.."))
 ```
 
-If these settings are missing, Sphinx may fail with errors such as
-`Unknown directive type "automodule"` or import errors when building the docs.
-
-Also enables `autodoc` (and related extensions):
+Enable `autodoc` (and related extensions):
 
 ```python
 extensions = [
@@ -238,7 +243,7 @@ extensions = [
 ]
 ```
 
-Finally, make sure that `docs/source/index.rst` contains `modules` under the `toctree` directive:
+Ensure `docs/source/index.rst` contains `modules` under the `toctree` directive:
 
 ```rst
 .. toctree::
@@ -262,7 +267,7 @@ The generated documentation will be available at `docs/build/html/index.html`.
 
 ## End-to-End Demo (CLI)
 
-The entire MLOps pipeline can be executed with a single command:
+The entire pipeline (continuous learning demo) can be executed with a single command:
 
 ```bash
 python3 demo.py
@@ -270,52 +275,88 @@ python3 demo.py
 
 This performs:
 
-1. **Dataset Generation**
+1. **Build TRAIN dataset (with feedback staging)**
 
    ```bash
-   python pipeline/build_dataset.py data/raw data/datasets_v1.csv
+   python pipeline/build_dataset.py data/_tmp_train data/datasets_train.csv
    ```
 
-   - Parses Python files with PML
-   - Executes functions with generated inputs
-   - Evaluates specifications
-   - Assigns labels based on observed violations
-   - Produces a versioned dataset
+   - `demo.py` prepares `data/_tmp_train/` by combining:
+     - `data/raw_train/` (base training pool)
+     - `data/raw_feedback/` (optional feedback pool, if present)
+   - `build_dataset.py` then:
+     - parses Python files with PML
+     - executes functions with generated inputs
+     - checks contracts dynamically
+     - assigns labels based on observed violations
+     - produces `datasets_train.csv`
 
+   Note: labeling uses randomized input generation. Unless you seed the
+   random generator, repeated runs may produce slightly different labels and metrics.
 
-2. **Model Training**
+2. **Build TEST dataset**
 
    ```bash
-   python pipeline/train.py data/datasets_v1.csv
+   python pipeline/build_dataset.py data/raw_test data/datasets_test.csv
    ```
 
-   - Reads hyperparameters from `config.yaml`
-   - Trains a baseline ML classifier
-   - Prints evaluation metrics
-   - Saves a *new versioned model* (`model_vN.pkl`)
+   - Produces a held-out dataset used only to compare candidate models
+   - This is the reference split for promotion decisions
 
-
-3. **Inference on New Code**
+3. **Train candidate models**
 
    ```bash
-   python inference/predict.py data/raw/example.py
+   python pipeline/train.py data/datasets_train.csv --model logistic
+   python pipeline/train.py data/datasets_train.csv --model forest
    ```
 
-   - Loads the model pointed by `models/active_model.txt`
-   - Parses new code
-   - Reconstructs the same feature vector used in training
-   - Outputs:
-      - a numeric risk score in [0,1]
-      - an operational risk level: `LOW`, `MEDIUM`, `HIGH`
+   - Trains two different model families:
+     - Logistic Regression (baseline candidate)
+     - Random Forest (challenger candidate)
+   - Each candidate is saved under `models/`
 
-The demo automatically runs all three steps on all files in `data/raw/`.
+4. **Continuous Training Trigger (promotion)**
+
+   ```bash
+   python ct_trigger.py data/datasets_test.csv
+   ```
+
+   - Loads candidate artifacts (`models/logistic.pkl`, `models/forest.pkl`)
+   - Evaluates each candidate on the same held-out TEST dataset (`datasets_test.csv`)
+   - Selects the champion by maximizing **Recall on the RISKY class**
+   - Promotes the winner as:
+
+     ```
+     models/best_model.pkl
+     ```
+
+5. **Inference on UNSEEN examples + feedback collection**
+
+   ```bash
+   python inference/predict.py data/raw_unseen/example014.py
+   ```
+
+   - Loads the promoted champion (`models/best_model.pkl`)
+   - Produces:
+     - per-function probability of being RISKY
+     - operational level: `LOW`, `MEDIUM`, `HIGH`
+   - `demo.py` runs inference on all files in `data/raw_unseen/`
+   - If a high-risk function is detected, the file is copied into:
+
+     ```
+     data/raw_feedback/
+     ```
+
+The demo is intentionally small-scale (educational) but follows the logic of
+real ML + MLOps systems: train on TRAIN, select on TEST, observe behavior on UNSEEN,
+and collect feedback for future training runs.
 
 ------------------------------------------------------------------------
 
 ## Web Interface (Streamlit)
 
 SpecLens-PML also provides a lightweight **web GUI** (Graphical User Interface) implemented with
-Streamlit. The GUI does not replace the MLOps pipeline: it is a thin
+Streamlit. The GUI does not replace the pipeline: it is a thin
 presentation layer on top of the existing backend components.
 
 Start the web application with:
@@ -324,29 +365,28 @@ Start the web application with:
 streamlit run app.py
 ```
 
-The interface exposes the full system to non-technical users:
+The interface exposes the system to non-technical users:
 
 1. **Run full pipeline**  
-   Executes `demo.py` (dataset generation + training + inference).
+   Executes `demo.py` (train/test build + training + promotion + unseen inference).
 
- 2. **Trigger Continuous Training**  
-    Executes `ct_trigger.py`, potentially retraining and promoting a new
-  model.
+2. **Trigger Continuous Training**  
+   Executes `ct_trigger.py` to re-evaluate and promote a new champion.
 
- 3. **Active model display**  
-    Shows the model currently in production (from `active_model.txt`).
+3. **Active model display**  
+   Shows the model currently used for inference (`models/best_model.pkl`).
 
- 4. **Code analysis**  
-    Upload a `.py` file annotated with PML and obtain:
-       - Function-level analysis
-       - Risk scores
-       - Operational levels (`LOW`, `MEDIUM`, `HIGH`)
+4. **Code analysis**  
+   Upload a `.py` file annotated with PML and obtain:
+   - Function-level analysis
+   - Risk scores
+   - Operational levels (`LOW`, `MEDIUM`, `HIGH`)
 
 The Streamlit application reuses the same backend scripts:
 
 - `demo.py`
 - `ct_trigger.py`
-- `predict.py`
+- `inference/predict.py`
 
 No MLOps logic is duplicated or altered. The GUI only changes *how the
 system is operated*, not *how it behaves*.
@@ -359,23 +399,25 @@ SpecLens-PML implements a complete MLOps workflow:
 
 1. **Data Pipeline**
    - Code + specifications are treated as data
-   - Datasets are generated and versioned (`datasets_vN.csv`)
-
+   - Datasets are generated from TRAIN and TEST pools:
+     - `datasets_train.csv`
+     - `datasets_test.csv`
 
 2. **ML Kernel**
-   - Training is fully reproducible
-   - Hyperparameters and thresholds are centralized in `config.yaml`
+   - Training is reproducible when using fixed seeds
+   - Feature extraction is centralized in `pipeline/features.py`
+   - Inference uses the exact same schema as training (shared feature extractor)
 
-
-3. **Model Versioning**
-   - Each training run produces a new artifact:
+3. **Model Registry (Candidates + Champion)**
+   - Each run produces candidate artifacts:
      ```
-     models/model_v1.pkl
-     models/model_v2.pkl
-     ...
+     models/logistic.pkl
+     models/forest.pkl
      ```
-   - Older models are preserved to enable rollback.
-
+   - A single promoted artifact is used for serving:
+     ```
+     models/best_model.pkl
+     ```
 
 4. **Operational Semantics**
    - Predictions are mapped to decision levels:
@@ -384,66 +426,44 @@ SpecLens-PML implements a complete MLOps workflow:
         - `HIGH`   – critical
    - The system provides *decision support*, not proofs
 
-
-5. **Continuous Training**
-
-```bash
-python3 ct_trigger.py
-```
-
-The continuous training component:
-
-- Monitors model performance
-- Compares metrics with operational thresholds
-- Retrains the model when required
-- Evaluates the new model against the active one
-- Promotes the new model only if it improves safety-oriented metrics
+5. **Continuous Training and Feedback**
+   - Promotion is based on a safety-oriented metric:
+     **Recall on the RISKY class**
+   - New unseen examples can be collected into `raw_feedback/`
+   - The feedback pool is automatically folded into training via `demo.py`
 
 This design enables:
 
-- Reproducibility
-- Traceability
-- Rollback
-- Adaptation to data drift
-- Controlled deployment
+- Reproducibility (with fixed seeds)
+- Traceability (explicit candidate and champion artifacts)
+- Simple governance (promotion based on a single metric)
+- A realistic train/test/unseen split
+- A minimal feedback loop
 
 ------------------------------------------------------------------------
 
 ## Training vs Serving
 
-SpecLens-PML explicitly separates **model training** from **model
-serving**.
+SpecLens-PML explicitly separates **training/evaluation** from **serving**.
 
-- The training pipeline may generate many model versions:
+- Training produces *candidate* models:
   ```
-  models/model_v1.pkl
-  models/model_v2.pkl
-  models/model_v13.pkl
-  ...
+  models/logistic.pkl
+  models/forest.pkl
   ```
 
-- The inference layer does **not** automatically use the latest trained
-  model
+- Serving uses a single promoted *champion* model:
 
-Instead, the model currently in production is defined by:
+  ```
+  models/best_model.pkl
+  ```
 
-```
-models/active_model.txt
-```
-
-This file contains the path of the *active* model, for example:
-
-```
-models/model_v1.pkl
-```
-
-`predict.py` always loads the model specified in `active_model.txt`.
+`predict.py` always loads `models/best_model.pkl`.
 This ensures that:
 
-- Training does not implicitly change system behavior
-- New models are never deployed by accident
-- Rollback is immediate (just update one file)
-- Governance policies can be enforced
+- Candidate training does not implicitly change serving behavior
+- Deployment is explicit and controlled
+- A single artifact defines the model in production
 
 ------------------------------------------------------------------------
 
@@ -452,31 +472,21 @@ This ensures that:
 `ct_trigger.py` closes the loop:
 
 ```bash
-python3 ct_trigger.py
+python3 ct_trigger.py data/datasets_test.csv
 ```
 
 It performs the following steps:
 
-1. Triggers a new training run.
-2. Identifies the newly produced model.
-3. Evaluates both:
-   - The current active model
-   - The newly trained model
-4. Compares a safety-oriented metric (recall on the RISKY class).
-5. Promotes the new model **only if it improves the metric**.
-
-If the new model is better, `active_model.txt` is automatically updated.
-Otherwise, the new model is kept for traceability but not deployed.
+1. Loads candidate models (`logistic`, `forest`)
+2. Evaluates both on the same held-out TEST dataset
+3. Computes a safety-oriented metric (Recall on RISKY)
+4. Promotes the best candidate to `models/best_model.pkl`
 
 This implements a simplified but complete MLOps governance loop with:
 
-- Controlled deployment
-- Automatic promotion
-- Human-in-the-loop readiness
-- Full traceability and rollback
-
-Training and serving are therefore *decoupled by design*, reflecting
-real-world MLOps practice in safety-oriented systems.
+- Controlled deployment (only the champion is served)
+- Automatic promotion (metric-driven)
+- Full separation between TRAIN (fit) and TEST (selection)
 
 ------------------------------------------------------------------------
 
@@ -485,12 +495,12 @@ real-world MLOps practice in safety-oriented systems.
 SpecLens-PML is designed as an educational MLOps system:
 
 - Datasets are generated automatically from code
-- Labels come from dynamic execution
-- Models are versioned and reproducible
-- The entire lifecycle is observable and repeatable
+- Labels come from dynamic execution and contract checking
+- Candidate models are trained and compared on a held-out test set
+- The system can collect feedback from unseen examples
 
 The quality of predictions depends on data availability:
-the more annotated code is added to `data/raw/`, the more informative
+the more annotated code is added to `data/raw_train/`, the more informative
 the system becomes.
 
 The focus of the project is on **architecture, reproducibility and
@@ -510,7 +520,8 @@ Possible next steps include:
 - Scaling the dataset with larger real-world annotated Python projects
 - Integrating more advanced program analysis features (control-flow, data-flow)
 - Extending PML with richer specification constructs
-- Adopting full MLOps tooling (CI/CD pipelines, model registries, drift monitoring)
+- Adding stronger reproducibility controls (global seeding, deterministic labeling)
+- Adopting full MLOps tooling (CI/CD, experiment tracking, drift monitoring)
 - Exploring hybrid approaches that combine machine learning with formal methods
 
 With these extensions, SpecLens-PML could serve as a strong foundation

@@ -1,227 +1,258 @@
 """
-PML parsing module for SpecLens-PML.
+SpecLens-PML Contract Parser.
 
-This module implements the static analysis front-end of the project.
+This module implements a lightweight parser for extracting functions and
+methods annotated with PML-style contracts.
 
-It combines:
+Supported annotations
+---------------------
+Contracts are expressed as Python comments:
 
-- Python AST parsing (via the built-in ast module)
-- Lightweight contract extraction from comments
-
-Supported PML annotations are embedded as Python comments:
-
-    # @requires <expr>
-    # @ensures  <expr>
+    # @requires  <expr>
+    # @ensures   <expr>
     # @invariant <expr>
 
-The parser extracts, for each function or method:
+Contracts may appear:
 
-- signature information (name, parameters, location)
-- associated preconditions and postconditions
-- inherited class invariants (if defined)
+1. Immediately above a function or method definition
+2. Anywhere inside the function body (after docstrings, comments, or code)
 
-This component enables treating annotated programs as structured data,
-which is the foundation of the data-driven MLOps pipeline.
+This design makes the parser robust across all SpecLens demo examples.
 """
 
-# pml/parser.py
+from __future__ import annotations
+
+# ---------------------------------------------------------------------------
+# Imports
+# ---------------------------------------------------------------------------
 
 import ast
-import re
 from pathlib import Path
-from typing import List, Dict
-
-# Regular expression pattern matching PML contract clauses in comments
-PML_PATTERN = re.compile(r"#\s*@(?P<kind>requires|ensures|invariant)\s+(?P<expr>.+)")
+from typing import List, Tuple, Dict
 
 
-def extract_pml_from_lines(lines: List[str]) -> Dict[str, List[str]]:
+# ---------------------------------------------------------------------------
+# Contract Extraction Helpers
+# ---------------------------------------------------------------------------
+
+def _extract_contracts(lines: List[str]) -> Tuple[List[str], List[str], List[str]]:
     """
-    Extract PML contract clauses from a list of source code lines.
+    Extract all contract annotations from a list of comment lines.
 
-    Each line is scanned for annotations of the form:
+    Parameters
+    ----------
+    lines : list[str]
+        Comment lines potentially containing @requires/@ensures/@invariant tags.
 
-        # @requires ...
-        # @ensures ...
-        # @invariant ...
-
-    The result is grouped into three categories.
-
-    :param lines: List of source code lines.
-    :return: Dictionary containing lists of extracted expressions.
+    Returns
+    -------
+    (requires, ensures, invariants) : tuple[list[str], list[str], list[str]]
+        Extracted contract clauses.
     """
-    # Initialize clause containers
-    clauses = {"requires": [], "ensures": [], "invariant": []}
 
-    # Scan each line for contract annotations
-    for line in lines:
-        m = PML_PATTERN.search(line)
-        if m:
-            kind = m.group("kind")
-            expr = m.group("expr").strip()
+    requires: List[str] = []
+    ensures: List[str] = []
+    invariants: List[str] = []
 
-            # Append extracted expression under its clause type
-            clauses[kind].append(expr)
+    for raw in lines:
+        line = raw.strip()
 
-    return clauses
+        if not line.startswith("#"):
+            continue
+
+        payload = line[1:].strip()
+
+        if payload.startswith("@requires"):
+            requires.append(payload[len("@requires"):].strip())
+
+        elif payload.startswith("@ensures"):
+            ensures.append(payload[len("@ensures"):].strip())
+
+        elif payload.startswith("@invariant"):
+            invariants.append(payload[len("@invariant"):].strip())
+
+    return requires, ensures, invariants
 
 
-def collect_leading_comments(lines, start_line):
+def _comment_block_above(lines: List[str], lineno: int) -> List[str]:
     """
-    Collect contiguous comment lines located immediately above a node.
+    Collect contiguous comment lines immediately above a definition.
 
-    This is used to associate contract clauses written before a function
-    or class definition.
+    This captures contracts written directly before a function/class header.
 
-    :param lines: Full source file lines.
-    :param start_line: Line index (0-based) where the node begins.
-    :return: List of comment lines above the node.
+    Parameters
+    ----------
+    lines : list[str]
+        Full source file split into lines.
+    lineno : int
+        AST line number where the definition starts.
+
+    Returns
+    -------
+    list[str]
+        The contiguous block of comment lines above the definition.
     """
-    collected = []
-    i = start_line - 1
 
-    # Traverse upward while comments continue
-    while i >= 0 and lines[i].strip().startswith("#"):
-        collected.append(lines[i])
+    i = lineno - 2
+    block: List[str] = []
+
+    # Skip blank lines immediately above
+    while i >= 0 and lines[i].strip() == "":
         i -= 1
 
-    # Restore original ordering
-    collected.reverse()
-    return collected
-
-
-def collect_body_comments(lines, node):
-    """
-    Collect comment lines at the beginning of a node body.
-
-    This supports contracts written inside a class or function block,
-    immediately before the first executable statement.
-
-    :param lines: Full source file lines.
-    :param node: AST node (FunctionDef or ClassDef).
-    :return: List of leading comment lines inside the node body.
-    """
-    comments = []
-
-    # If node has no body, nothing to extract
-    if not node.body:
-        return comments
-
-    # Identify the first statement in the node body
-    first_stmt = node.body[0]
-    start = first_stmt.lineno - 2  # 0-based index of line before statement
-
-    i = start
-
-    # Traverse upward while contiguous comments exist
-    while i >= 0 and lines[i].strip().startswith("#"):
-        comments.append(lines[i])
+    # Collect comment lines
+    while i >= 0 and lines[i].lstrip().startswith("#"):
+        block.append(lines[i])
         i -= 1
 
-    # Restore original ordering
-    comments.reverse()
-    return comments
+    block.reverse()
+    return block
 
 
-def parse_file(path: Path):
+def _all_comments_inside_function(lines: List[str], node: ast.FunctionDef) -> List[str]:
     """
-    Parse a Python source file annotated with PML contracts.
+    Collect ALL comment lines inside a function body.
 
-    The parsing process performs two passes:
+    SpecLens examples may place contracts after docstrings or executable code,
+    so scanning the full body is the most robust strategy.
 
-    1. Collect class invariants (@invariant) defined in classes.
-    2. Collect functions and methods, attaching:
-       - requires clauses
-       - ensures clauses
-       - inherited invariants from enclosing classes
+    Parameters
+    ----------
+    lines : list[str]
+        Full source file split into lines.
+    node : ast.FunctionDef
+        Function node.
 
-    The output is a list of dictionaries, each representing one
-    analyzable unit.
-
-    :param path: Path to the Python source file.
-    :return: List of extracted function/method metadata dictionaries.
+    Returns
+    -------
+    list[str]
+        Comment lines found inside the function body.
     """
-    # Load source file contents
-    source = path.read_text()
+
+    start = node.lineno - 1
+    end = getattr(node, "end_lineno", start)
+
+    body_lines = lines[start:end]
+    return [l for l in body_lines if l.strip().startswith("#")]
+
+
+# ---------------------------------------------------------------------------
+# LOC Helper
+# ---------------------------------------------------------------------------
+
+def _node_loc(node: ast.AST) -> int:
+    """
+    Approximate the number of lines of code (LOC) of an AST node.
+
+    Uses end_lineno when available (Python 3.8+).
+
+    Returns
+    -------
+    int
+        Approximate LOC for the node.
+    """
+
+    lineno = getattr(node, "lineno", None)
+    end_lineno = getattr(node, "end_lineno", None)
+
+    if lineno and end_lineno:
+        return max(1, end_lineno - lineno + 1)
+
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def parse_file(path: Path) -> List[Dict]:
+    """
+    Parse a Python source file and extract all annotated functions/methods.
+
+    Each extracted entry includes:
+
+    - name        : function/method name
+    - class       : enclosing class name (or None)
+    - params      : parameter names
+    - requires    : list of preconditions
+    - ensures     : list of postconditions
+    - invariant   : list of class invariants (if any)
+    - line        : definition line number
+    - n_loc       : approximate LOC
+
+    Parameters
+    ----------
+    path : Path
+        Path to the Python source file.
+
+    Returns
+    -------
+    list[dict]
+        Parsed descriptors for all functions and methods.
+    """
+
+    source = path.read_text(encoding="utf-8")
     lines = source.splitlines()
-
-    # Parse into an abstract syntax tree
     tree = ast.parse(source)
 
-    functions = []
+    results: List[Dict] = []
 
-    # Map class names to their invariant clauses
-    class_invariants = {}
+    # -----------------------------------------------------------------------
+    # Traverse top-level AST nodes
+    # -----------------------------------------------------------------------
+    for node in tree.body:
 
-    # --- First pass: collect class invariants ------------------------------
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            # Extract comments above and inside the class definition
-            start_line = node.lineno - 1
-            above = collect_leading_comments(lines, start_line)
-            inside = collect_body_comments(lines, node)
-
-            # Extract invariant clauses from those comments
-            clauses = extract_pml_from_lines(above + inside)
-            class_invariants[node.name] = clauses["invariant"]
-
-    # --- Second pass: collect functions and methods ------------------------
-    for node in ast.walk(tree):
+        # -------------------------------------------------------------------
+        # Top-level functions
+        # -------------------------------------------------------------------
         if isinstance(node, ast.FunctionDef):
-            # Identify function start line for comment association
-            start_line = node.lineno - 1
 
-            # Extract comments above and inside the function definition
-            above = collect_leading_comments(lines, start_line)
-            inside = collect_body_comments(lines, node)
+            above = _comment_block_above(lines, node.lineno)
+            inside = _all_comments_inside_function(lines, node)
 
-            # Extract requires/ensures clauses
-            clauses = extract_pml_from_lines(above + inside)
+            req1, ens1, _ = _extract_contracts(above)
+            req2, ens2, _ = _extract_contracts(inside)
 
-            # --- Determine enclosing class context -------------------------
-            parent_class = None
-            for parent in ast.walk(tree):
-                if isinstance(parent, ast.ClassDef):
-                    if node in parent.body:
-                        parent_class = parent.name
-                        break
-
-            # Attach invariants inherited from enclosing class (if any)
-            invariants = []
-            if parent_class and parent_class in class_invariants:
-                invariants.extend(class_invariants[parent_class])
-
-            # Build structured representation of the function unit
-            func_info = {
+            results.append({
                 "name": node.name,
-                "class": parent_class,
-                "params": [arg.arg for arg in node.args.args],
-                "lineno": node.lineno,
-                "requires": clauses["requires"],
-                "ensures": clauses["ensures"],
-                "invariant": invariants,
-                "n_loc": len(node.body),
-            }
+                "class": None,
+                "params": [a.arg for a in node.args.args],
+                "requires": req1 + req2,
+                "ensures": ens1 + ens2,
+                "invariant": [],
+                "line": node.lineno,
+                "n_loc": _node_loc(node),
+            })
 
-            # Add extracted unit to result list
-            functions.append(func_info)
+        # -------------------------------------------------------------------
+        # Classes and methods
+        # -------------------------------------------------------------------
+        elif isinstance(node, ast.ClassDef):
 
-    return functions
+            # Extract class-level invariants
+            above_class = _comment_block_above(lines, node.lineno)
+            _, _, class_invs = _extract_contracts(above_class)
 
+            for child in node.body:
+                if not isinstance(child, ast.FunctionDef):
+                    continue
 
-# Standalone CLI entry point for debugging the parser
-if __name__ == "__main__":
-    import sys
+                above = _comment_block_above(lines, child.lineno)
+                inside = _all_comments_inside_function(lines, child)
 
-    # Validate command-line usage
-    if len(sys.argv) != 2:
-        print("Usage: python parser.py <file.py>")
-        sys.exit(1)
+                req1, ens1, _ = _extract_contracts(above)
+                req2, ens2, _ = _extract_contracts(inside)
 
-    # Parse file passed as argument
-    path = Path(sys.argv[1])
-    parsed = parse_file(path)
+                results.append({
+                    "name": child.name,
+                    "class": node.name,
+                    "params": [a.arg for a in child.args.args],
+                    "requires": req1 + req2,
+                    "ensures": ens1 + ens2,
+                    "invariant": class_invs,
+                    "line": child.lineno,
+                    "n_loc": _node_loc(child),
+                })
 
-    # Print extracted units for inspection
-    for f in parsed:
-        print(f)
+    return results
+

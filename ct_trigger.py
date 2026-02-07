@@ -1,112 +1,114 @@
-#!/usr/bin/env python3
-
 """
-Continuous training trigger for SpecLens-PML.
+Continuous Training Trigger for SpecLens-PML.
 
-This module implements a simplified Continuous Training (CT) loop:
+Implements a Champion/Challenger strategy:
 
-- It retrains a new model using the current dataset.
-- It evaluates both the active model and the newly trained model.
-- It promotes the new model only if it improves a safety-oriented metric
-  (recall on the RISKY class).
+- Multiple candidate models are trained (logistic, forest).
+- Each candidate is evaluated on the same held-out TEST dataset.
+- The model with best Recall on the RISKY class is promoted.
 
-This reflects a realistic MLOps governance pattern where training and
-deployment are decoupled, and model updates are controlled through
-explicit promotion rules.
+The promoted model is always saved as:
+
+    models/best_model.pkl
+
+This ensures inference always uses the best available model.
 """
 
-from pathlib import Path
-from sklearn.metrics import recall_score
-from sklearn.model_selection import train_test_split
-
+import sys
 import joblib
 import pandas as pd
-import subprocess
+from pathlib import Path
 
-# Define repository root and key artifact locations
-ROOT = Path(__file__).resolve().parent
-MODELS = ROOT / "models"
-ACTIVE = MODELS / "active_model.txt"
-DATASET = ROOT / "data" / "datasets_v1.csv"
+from pipeline.train import evaluate_model
 
-# Feature columns used consistently across training and evaluation
-FEATURE_COLS = ["n_params", "n_requires", "n_ensures", "n_invariants", "n_loc"]
 
-def evaluate(model_path: Path) -> float:
-    """
-    Evaluate a trained model on the current dataset.
+# ------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------
 
-    The evaluation focuses on recall for the RISKY class, which is treated
-    as the safety-critical metric in this project.
+MODELS_DIR = Path("models")
 
-    :param model_path: Path to the model artifact (.pkl file).
-    :return: Recall score on the test split.
-    """
-    # Load the latest dataset produced by the data pipeline
-    df = pd.read_csv(DATASET)
+CANDIDATES = {
+    "logistic": MODELS_DIR / "logistic.pkl",
+    "forest": MODELS_DIR / "forest.pkl",
+}
 
-    # Extract feature matrix and target labels
-    X = df[FEATURE_COLS]
-    y = df["label"]
+BEST_MODEL_PATH = MODELS_DIR / "best_model.pkl"
 
-    # Split data into training and test partitions
-    # Stratification is applied when both classes are present
-    Xtr, Xte, ytr, yte = train_test_split(
-        X, y, test_size=0.3, random_state=42, stratify=y if len(y.unique()) > 1 else None
-    )
 
-    # Load the trained model artifact from disk
-    model = joblib.load(model_path)
+# ------------------------------------------------------------
+# Trigger logic
+# ------------------------------------------------------------
 
-    # Generate predictions on the test set
-    ypred = model.predict(Xte)
-
-    # Compute recall, ensuring stable behavior even with edge cases
-    return recall_score(yte, ypred, zero_division=0)
-
-def main():
-    """
-    Execute the continuous training trigger.
-
-    This function retrains a new model, compares it with the currently
-    active one, and updates the active model pointer only if performance
-    improves.
-    """
+def main(test_dataset_path: Path):
     print("=== Continuous Training Trigger ===")
 
-    # --- Step 1: Train a new candidate model -------------------------------
-    # This produces a new versioned artifact in the models/ directory
-    subprocess.call(["python3", "pipeline/train.py", str(DATASET)])
+    # --------------------------------------------------------
+    # Load TEST dataset (held-out evaluation set)
+    # --------------------------------------------------------
+    if not test_dataset_path.exists():
+        raise FileNotFoundError(f"Test dataset not found: {test_dataset_path}")
 
-    # --- Step 2: Identify the newly produced model -------------------------
-    # Select the latest model based on modification timestamp
-    latest = max(MODELS.glob("model_v*.pkl"), key=lambda p: p.stat().st_mtime)
+    df = pd.read_csv(test_dataset_path)
 
-    # --- Step 3: Load the currently active production model ----------------
-    # The active model is defined by a pointer file for controlled deployment
-    with open(ACTIVE) as f:
-        current = ROOT / f.read().strip()
+    feature_cols = [
+        c for c in df.columns
+        if c not in ("name", "class", "source_file", "label")
+    ]
 
-    # --- Step 4: Evaluate both models --------------------------------------
-    # Compare recall on the RISKY class for governance decisions
-    new_recall = evaluate(latest)
-    cur_recall = evaluate(current)
+    X_test = df[feature_cols]
+    y_test = df["label"]
 
-    # Print evaluation results for traceability and monitoring
-    print(f"Current recall (RISKY): {cur_recall:.3f}")
-    print(f"New recall (RISKY):     {new_recall:.3f}")
+    best_name = None
+    best_recall = -1.0
+    best_model = None
 
-    # --- Step 5: Model promotion decision ----------------------------------
-    # Promote the new model only if it improves the safety-oriented metric
-    if new_recall >= cur_recall:
-        # Update the active model pointer to deploy the new artifact
-        with open(ACTIVE, "w") as f:
-            f.write(str(latest.relative_to(ROOT)))
-        print(f"New model promoted: {latest.name}")
-    else:
-        # Keep the current model in production if no improvement is observed
-        print("New model rejected (performance did not improve).")
+    # --------------------------------------------------------
+    # Evaluate all candidate models
+    # --------------------------------------------------------
+    for name, path in CANDIDATES.items():
 
-# Entry point for standalone execution
+        if not path.exists():
+            print(f"Skipping {name}: model file not found.")
+            continue
+
+        print(f"\nEvaluating candidate: {name}")
+
+        model = joblib.load(path)
+
+        recall_risky = evaluate_model(model, X_test, y_test)
+
+        print(f"Recall (RISKY) for {name}: {recall_risky:.3f}")
+
+        if recall_risky > best_recall:
+            best_recall = recall_risky
+            best_name = name
+            best_model = model
+
+    # --------------------------------------------------------
+    # Promote best model
+    # --------------------------------------------------------
+    if best_model is None:
+        print("\nNo valid candidate models found.")
+        return
+
+    joblib.dump(best_model, BEST_MODEL_PATH)
+
+    print("\n=== Promotion Result ===")
+    print(f"Best model: {best_name}")
+    print(f"Best Recall (RISKY): {best_recall:.3f}")
+    print(f"Promoted as: {BEST_MODEL_PATH}")
+
+
+# ------------------------------------------------------------
+# CLI entry point
+# ------------------------------------------------------------
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) != 2:
+        print("Usage: python ct_trigger.py <test_dataset.csv>")
+        sys.exit(1)
+
+    test_path = Path(sys.argv[1])
+    main(test_path)
+

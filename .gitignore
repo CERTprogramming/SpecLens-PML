@@ -4,8 +4,6 @@
 
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 
 # ======================================================
 # Virtual environments
@@ -16,37 +14,56 @@ venv/
 env/
 
 # ======================================================
-# Jupyter / notebooks (if any)
-# ======================================================
-
-.ipynb_checkpoints/
-
-# ======================================================
 # OS / Editor files
 # ======================================================
 
 .DS_Store
 Thumbs.db
-
 .vscode/
 .idea/
 
 # ======================================================
-# Logs / temporary outputs
+# Logs / temp
 # ======================================================
 
 *.log
 *.tmp
 
 # ======================================================
-# Generated datasets (pipeline outputs)
+# Dataset artifacts (generated)
 # ======================================================
 
 data/*.csv
-!data/datasets_v1.csv
 
+# Temporary training staging directory
+data/_tmp_train/
+
+# Feedback pool is optional (can be regenerated)
+data/raw_feedback/
+
+# ======================================================
 # Keep raw annotated examples tracked
-!data/raw/*.py
+# ======================================================
+
+!data/raw_train/*.py
+!data/raw_test/*.py
+!data/raw_unseen/*.py
+
+# ======================================================
+# Model artifacts (generated)
+# ======================================================
+
+models/*.pkl
+
+# If you want to keep the promoted champion tracked, uncomment:
+# !models/best_model.pkl
+
+# ======================================================
+# Documentation builds
+# ======================================================
+
+docs/build/
+docs/_build/
 
 # ======================================================
 # Packaging artifacts
@@ -57,35 +74,11 @@ dist/
 build/
 
 # ======================================================
-# Generated model artifacts
-# ======================================================
-
-models/*.pkl
-
-# Keep the active model pointer tracked
-!models/model_v1.pkl
-!models/active_model.txt
-
-# ======================================================
-# Streamlit
-# ======================================================
-
-.streamlit/secrets.toml
-.streamlit/cache/
-
-# ======================================================
-# Documentation builds (Sphinx/MkDocs)
-# ======================================================
-
-docs/_build/
-docs/build/
-site/
-
-# ======================================================
 # Security / secrets
 # ======================================================
 
 .env
-*.token
 *.key
 *.pem
+*.token
+

@@ -1,164 +1,207 @@
 """
-Model training module for SpecLens-PML.
+SpecLens-PML Model Training.
 
-This script implements the supervised learning stage of the pipeline:
+This script implements the supervised learning stage of the pipeline.
 
-- Loads the generated dataset artifact (CSV).
-- Splits data into training and evaluation sets.
-- Trains a baseline Random Forest classifier.
-- Reports standard ML metrics (accuracy and recall on risky functions).
-- Saves a new versioned model artifact (model_vN.pkl).
+It trains multiple candidate models (baseline + challenger), including:
 
-The training process is fully reproducible and configuration-driven,
-with hyperparameters centralized in config.yaml.
+- Logistic Regression (baseline)
+- Random Forest (challenger)
 
-Each execution produces a new model version to support traceability,
-rollback, and controlled deployment workflows.
+Each trained model is saved as an independent artifact so that the
+Continuous Training trigger (ct_trigger.py) can later evaluate and
+promote the best-performing one.
+
+The key metric for promotion is:
+
+    Recall on the RISKY class (label = 1)
 """
 
-#!/usr/bin/env python3
+# ---------------------------------------------------------------------------
+# Imports
+# ---------------------------------------------------------------------------
 
-import sys
-import re
-import yaml
+import argparse
+from pathlib import Path
+
 import joblib
 import pandas as pd
-from pathlib import Path
+
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score, recall_score
+from sklearn.metrics import classification_report, recall_score
+
+from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 
 
-def next_model_path(models_dir: Path) -> Path:
+# ---------------------------------------------------------------------------
+# Model Factory
+# ---------------------------------------------------------------------------
+
+def build_model(model_type: str):
     """
-    Compute the next available versioned model artifact path.
+    Construct a classifier given its type.
 
-    Models are stored under the models/ directory using the naming scheme:
+    Supported models
+    ----------------
+    logistic : LogisticRegression baseline
+    forest   : RandomForest challenger
 
-        model_v1.pkl
-        model_v2.pkl
-        ...
+    Parameters
+    ----------
+    model_type : str
+        Identifier of the model type.
 
-    This function scans existing artifacts, extracts the highest version
-    number, and returns the next version path.
-
-    :param models_dir: Directory containing stored model artifacts.
-    :return: Path for the next model version to be saved.
+    Returns
+    -------
+    sklearn estimator
+        Instantiated classifier ready for training.
     """
-    # Retrieve all previously saved model artifacts
-    existing = list(models_dir.glob("model_v*.pkl"))
 
-    # If no model exists yet, start from version 1
-    if not existing:
-        return models_dir / "model_v1.pkl"
+    if model_type == "logistic":
+        return LogisticRegression(max_iter=1000)
 
-    versions = []
+    if model_type == "forest":
+        return RandomForestClassifier(
+            n_estimators=200,
+            max_depth=5,
+            random_state=42,
+        )
 
-    # Extract numeric version identifiers from filenames
-    for p in existing:
-        m = re.search(r"model_v(\d+)\.pkl", p.name)
-        if m:
-            versions.append(int(m.group(1)))
-
-    # Compute the next version number
-    next_v = max(versions) + 1 if versions else 1
-
-    return models_dir / f"model_v{next_v}.pkl"
+    raise ValueError(f"Unknown model type: {model_type}")
 
 
-def main():
+# ---------------------------------------------------------------------------
+# Evaluation Helper (shared with ct_trigger.py)
+# ---------------------------------------------------------------------------
+
+def evaluate_model(model, X_test, y_test) -> float:
     """
-    Execute the training pipeline step.
+    Evaluate a trained model and return Recall on the RISKY class.
 
-    This function performs:
+    Parameters
+    ----------
+    model :
+        Trained classifier.
+    X_test :
+        Feature matrix for validation.
+    y_test :
+        Ground truth labels.
 
-    1. Dataset loading
-    2. Feature/label extraction
-    3. Train/test split
-    4. Model training
-    5. Evaluation reporting
-    6. Versioned artifact persistence
-
-    The resulting model is stored in models/model_vN.pkl.
+    Returns
+    -------
+    float
+        Recall score for the RISKY class (label = 1).
     """
-    # Validate command-line usage
-    if len(sys.argv) < 2:
-        print("Usage: train.py <dataset.csv>")
-        sys.exit(1)
 
-    # Resolve dataset artifact path
-    dataset_path = Path(sys.argv[1]).resolve()
-
-    # Identify project root directory
-    ROOT = Path(__file__).resolve().parents[1]
-
-    # Load centralized configuration file
-    CONFIG_PATH = ROOT / "config.yaml"
-    with open(CONFIG_PATH) as f:
-        config = yaml.safe_load(f)
-
-    # Extract model hyperparameters from configuration
-    model_cfg = config["model"]
-
-    # --- Step 1: Load dataset artifact -------------------------------------
-    df = pd.read_csv(dataset_path)
-
-    # Define feature columns used for training and inference consistency
-    FEATURE_COLS = ["n_params", "n_requires", "n_ensures", "n_invariants", "n_loc"]
-
-    # Extract input feature matrix
-    X = df[FEATURE_COLS]
-
-    # Extract supervised target labels (SAFE vs RISKY)
-    y = df["label"]
-
-    # --- Step 2: Train/test split ------------------------------------------
-    # Stratification is applied when possible to preserve label distribution
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42, stratify=y if len(y.unique()) > 1 else None
-    )
-
-    # --- Step 3: Model initialization --------------------------------------
-    # Random Forest is used as a robust baseline classifier
-    model = RandomForestClassifier(
-        n_estimators=model_cfg.get("n_estimators", 100),
-        max_depth=model_cfg.get("max_depth", None),
-        class_weight=model_cfg.get("class_weight", None),
-        random_state=42,
-    )
-
-    # --- Step 4: Model training --------------------------------------------
-    model.fit(X_train, y_train)
-
-    # --- Step 5: Evaluation ------------------------------------------------
-    # Generate predictions on the held-out test set
     y_pred = model.predict(X_test)
 
-    # Compute key operational metrics
-    acc = accuracy_score(y_test, y_pred)
+    print("\n=== Evaluation Report ===")
+    print(classification_report(y_test, y_pred))
 
-    # Recall on the risky class is safety-oriented: missing violations is costly
-    rec = recall_score(y_test, y_pred, zero_division=0)
+    recall_risky = recall_score(y_test, y_pred, pos_label=1)
+    print(f"Recall (RISKY): {recall_risky:.3f}")
 
-    # Print evaluation report for transparency
-    print("=== Evaluation Report ===")
-    print(classification_report(y_test, y_pred, zero_division=0))
-    print(f"Accuracy: {acc:.3f}")
-    print(f"Recall (RISKY): {rec:.3f}")
+    return recall_risky
 
-    # --- Step 6: Model versioning and persistence --------------------------
-    models_dir = ROOT / "models"
+
+# ---------------------------------------------------------------------------
+# Training Procedure
+# ---------------------------------------------------------------------------
+
+def train(dataset_path: Path, model_type: str) -> float:
+    """
+    Train a candidate model on the generated dataset.
+
+    The trained artifact is saved as:
+
+        models/{model_type}.pkl
+
+    Parameters
+    ----------
+    dataset_path : Path
+        Path to the CSV dataset produced by build_dataset.py.
+    model_type : str
+        Candidate model identifier ("logistic" or "forest").
+
+    Returns
+    -------
+    float
+        Recall score on the RISKY class.
+    """
+
+    # --------------------------------------------------------
+    # Load dataset
+    # --------------------------------------------------------
+    df = pd.read_csv(dataset_path)
+
+    # Features = all numeric columns except metadata + label
+    feature_cols = [
+        c for c in df.columns
+        if c not in ("name", "class", "source_file", "label")
+    ]
+
+    X = df[feature_cols]
+    y = df["label"]
+
+    # --------------------------------------------------------
+    # Train / validation split
+    # --------------------------------------------------------
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.3,
+        random_state=42,
+        stratify=y,
+    )
+
+    # --------------------------------------------------------
+    # Build and train model
+    # --------------------------------------------------------
+    model = build_model(model_type)
+    model.fit(X_train, y_train)
+
+    # --------------------------------------------------------
+    # Evaluate candidate
+    # --------------------------------------------------------
+    recall_risky = evaluate_model(model, X_test, y_test)
+
+    # --------------------------------------------------------
+    # Save trained artifact
+    # --------------------------------------------------------
+    models_dir = Path("models")
     models_dir.mkdir(exist_ok=True)
 
-    # Compute next artifact version path
-    model_path = next_model_path(models_dir)
+    out_path = models_dir / f"{model_type}.pkl"
+    joblib.dump(model, out_path)
 
-    # Save trained model as a versioned artifact
-    joblib.dump(model, model_path)
+    print(f"\nModel saved to {out_path}")
 
-    print(f"Model saved to {model_path}")
+    return recall_risky
 
 
-# Entry point for standalone execution
+# ---------------------------------------------------------------------------
+# CLI Entry Point
+# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser(
+        description="Train a candidate model for SpecLens-PML."
+    )
+
+    parser.add_argument(
+        "dataset",
+        help="Path to the CSV dataset generated by build_dataset.py",
+    )
+
+    parser.add_argument(
+        "--model",
+        default="logistic",
+        help="Model type: logistic or forest",
+    )
+
+    args = parser.parse_args()
+
+    train(Path(args.dataset), args.model)
+
