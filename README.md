@@ -398,6 +398,76 @@ system is operated*, not *how it behaves*.
 
 ------------------------------------------------------------------------
 
+## Jenkins Quickstart (Docker)
+
+SpecLens-PML can be executed automatically through Jenkins using the
+provided `Jenkinsfile`.
+
+For convenience, the project also includes a lightweight Docker image
+that installs Python inside Jenkins, so the pipeline can run end-to-end
+without requiring external agents.
+
+From the root of the repository:
+
+```bash
+docker build -t jenkins-python -f Dockerfile.jenkins .
+```
+
+To run Jenkins locally
+
+```bash
+docker run -d \
+  -p 8080:8080 \
+  -p 50000:50000 \
+  --name jenkins-python \
+  jenkins-python
+```
+
+Then open Jenkins at:
+
+```
+http://localhost:8080
+```
+
+Follow the initial setup wizard and create an admin user,
+then create the Pipeline Job:
+
+1. Click **New Item**
+2. Select **Pipeline**
+3. Under **Pipeline Definition**, choose:
+
+   ```
+   Pipeline script from SCM
+   ```
+
+4. Set the repository URL:
+
+   ```
+   https://github.com/CERTprogramming/SpecLens-PML
+   ```
+
+5. Jenkins will automatically detect and run the included `Jenkinsfile`
+
+The job exposes a parameter:
+
+- `RUN_RESET` (boolean)
+
+If enabled, Jenkins will run:
+
+```bash
+./reset.sh
+```
+
+This is useful for clean reproducible demo runs.
+
+If disabled (default), the pipeline preserves the feedback pool,
+allowing the model to improve incrementally across executions.
+
+No special plugins are required beyond the standard Jenkins Pipeline setup
+(which is included by default in most Jenkins installations).
+
+------------------------------------------------------------------------
+
 ## Continuous Integration with Jenkins (CI/CD Support)
 
 Although SpecLens-PML is an educational project, it is structured according
