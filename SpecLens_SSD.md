@@ -2,13 +2,13 @@
 
 ## 1. Problem Definition
 
-**SpecLens-PML** is an educational data-driven system that applies
+SpecLens-PML is an educational data-driven system that applies
 Machine Learning and MLOps principles to the domain of software
 correctness.
 
-The project introduces **PML (Python Modelling Language)**, a
+The project introduces PML (Python Modelling Language), a
 lightweight specification language inspired by JML (Java Modelling Language),
-and builds an end-to-end **MLOps pipeline with feedback-driven retraining**
+and builds an end-to-end MLOps pipeline with feedback-driven retraining
 
 The system analyzes Python functions annotated with PML contracts:
 
@@ -37,7 +37,7 @@ Primary stakeholders include:
 
 The system operates between traditional testing and full formal verification:
 
-- Like testing, it relies on **dynamic execution**  
+- Like testing, it relies on dynamic execution
 - Like specification-based approaches, it treats contracts as semantic signals  
 
 ---
@@ -76,7 +76,7 @@ These datasets are automatically produced during execution and are not tracked a
 
 ## 5. Label Generation
 
-Labels are produced through **dynamic execution and contract checking**:
+Labels are produced through dynamic execution and contract checking:
 
 - Functions are executed on generated inputs  
 - Pre/postconditions are validated  
