@@ -4,11 +4,13 @@
 
 SpecLens-PML implements an educational governance strategy focused on:
 
-- candidate vs champion separation  
-- metric-driven promotion  
-- controlled serving through a single deployed artifact  
-- feedback collection for continuous retraining  
-- reproducibility through reset and deterministic execution flow  
+- Candidate vs champion separation
+- Metric-driven promotion
+- Policy-driven governance thresholds defined in configuration (`config.yaml`)
+- Controlled serving through a single deployed artifact
+- Automated CI execution via containerized Jenkins pipeline
+- Feedback collection for continuous retraining
+- Reproducibility through reset and deterministic execution flow
 
 The system does not include a full enterprise model registry: the promoted champion artifact is updated at each evaluation cycle.
 
@@ -16,12 +18,13 @@ The system does not include a full enterprise model registry: the promoted champ
 
 ## 2. Managed Artifacts
 
-### Code Artifacts
-- Modular repository structure (`pipeline/`, `inference/`, `pml/`)  
-- Versioned through Git commits and tagged releases  
+The SpecLens-PML codebase is modular and fully versioned through Git:
 
-### Data Artifacts
-- Generated datasets:
+- Modular repository structure (`pipeline/`, `inference/`, `pml/`)  
+- Versioned through Git commits and tagged releases
+
+Training and held-out TEST datasets are generated as CSV artifacts during each pipeline execution:
+
   - `data/datasets_train.csv`
   - `data/datasets_test.csv`
 
@@ -33,7 +36,7 @@ Feedback pool evolves over time:
 
 - `raw_feedback/`
 
-### Model Artifacts
+The training stage produces multiple candidate model artifacts, while governance promotes a single champion model used for operational serving:
 
 | Type | Artifact | Role |
 |------|----------|------|
@@ -45,6 +48,8 @@ Feedback pool evolves over time:
 
 ## 3. Model Lifecycle Governance
 
+The following state diagram summarizes the governance lifecycle of SpecLens-PML models, from initial training to evaluation, champion deployment and feedback-driven retraining:
+
 ```mermaid
 stateDiagram-v2
   Draft --> Trained : pipeline/train.py
@@ -55,8 +60,8 @@ stateDiagram-v2
 
 The lifecycle enforces separation between:
 
-- **training artifacts** (candidates)  
-- **production artifact** (champion)  
+- Training artifacts (candidates)  
+- Production artifact (champion)  
 
 ---
 
@@ -64,20 +69,16 @@ The lifecycle enforces separation between:
 
 Promotion is implemented in `ct_trigger.py`:
 
-1. Load candidate models  
-2. Evaluate on held-out TEST dataset  
-3. Compute Recall on the *RISKY* class  
-4. Promote the best candidate to:
-
-```
-models/best_model.pkl
-```
+- Load candidate models  
+- Evaluate on held-out TEST dataset  
+- Compute Recall on the *RISKY* class  
+- Promote the best candidate (`models/best_model.pkl`)
 
 This governance rule ensures:
 
-- controlled deployment  
-- safety-oriented selection  
-- explicit separation between TRAIN and TEST  
+- Controlled deployment  
+- Safety-oriented selection  
+- Explicit separation between TRAIN and TEST  
 
 ---
 
@@ -91,15 +92,12 @@ If a function is classified as HIGH risk, the corresponding file is copied into:
 
 - `data/raw_feedback/`
 
-The training pool evolves as:
+The training pool evolves iteratively:
 
-\[
-TRAIN_{t+1} = RAW\_TRAIN \cup FEEDBACK_t
-\]
+- The next training set is built by merging the original raw training pool with the accumulated feedback examples
+- The feedback pool grows by adding unseen inputs classified as HIGH risk
 
-\[
-FEEDBACK_{t+1} = FEEDBACK_t \cup \{x \in UNSEEN : risk(x)=HIGH\}
-\]
+The diagram below illustrates how high-risk unseen inputs are collected into the feedback pool and reinjected into the training dataset in the next continuous learning cycle:
 
 ```mermaid
 flowchart LR
@@ -121,9 +119,10 @@ python3 demo.py
 
 Reset removes:
 
-- feedback pool  
-- generated datasets  
-- trained candidate and champion artifacts  
+- Feedback examples collected in `raw_feedback/`
+- Temporary training staging directory (`data/_tmp_train/`)
+- Generated TRAIN / TEST datasets (`datasets_train.csv`, `datasets_test.csv`)
+- Trained candidate and champion model artifacts (`logistic.pkl`, `forest.pkl`, `best_model.pkl`)
 
 Raw pools remain untouched, ensuring reproducible rebuilds.
 
@@ -135,16 +134,20 @@ SpecLens-PML integrates automation through:
 
 - `demo.py` for end-to-end continuous training runs  
 - `ct_trigger.py` for automated governance promotion  
+- Jenkins integration for CI execution of the full workflow (executed inside a Docker container, ensuring that the full pipeline can be replicated in an isolated environment outside the developer’s local machine)
 - Streamlit GUI (`app.py`) as an operational control interface  
-- Jenkins integration (optional) for CI execution of the full workflow  
-
-- Jenkins is executed inside a Docker container, ensuring that the full pipeline can be replicated in an isolated environment outside the developer’s local machine.
 
 ---
 
 ## 8. Monitoring and Maintenance Plan
 
-Monitoring is implemented through governance signals:
+Monitoring is implemented through governance-driven signals.
+Instead of relying on external observability stacks, the system reacts to:
+
+- Performance degradation (measured through recall on the held-out TEST dataset)
+- An increase of HIGH-risk unseen inputs (used to expand the feedback pool)
+- And drift indicators in specification patterns, i.e., shifts in the distribution
+of extracted contract features compared to the training data, by blocking champion promotion and collecting feedback examples for subsequent retraining:
 
 | Signal | Response Action |
 |--------|----------------|
@@ -168,15 +171,13 @@ To support traceability, the workflow can be represented as an event log:
 
 This schema enables future extensions with process mining and compliance auditing.
 
-
-
 ## 10. Example Operational Use Case
 
 A typical end-to-end interaction scenario is:
 
 - A developer submits Python code annotated with PML contracts  
 - The system performs inference using the deployed champion model  
-- If the risk level is classified as **HIGH**, the file is copied into the feedback pool  
+- If the risk level is classified as HIGH, the file is copied into the feedback pool  
 - The feedback pool is automatically incorporated into the next training cycle  
 
 This lightweight scenario provides a simple form of system modeling and traceability aligned with classical Software Engineering practices.

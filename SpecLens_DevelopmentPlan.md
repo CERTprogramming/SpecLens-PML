@@ -2,16 +2,24 @@
 
 ## 1. Project Summary
 
-SpecLens-PML is an educational end-to-end MLOps system developed for the
-Data-Driven Systems Engineering course (MSc Computer Engineering).
+**SpecLens-PML** is an educational data-driven system that applies
+Machine Learning and MLOps principles to the domain of software
+correctness.
+It was developed as part of the Data-Driven Systems Engineering course (MSc Computer Engineering).
 
-The project treats **Python code and formal specifications as structured data**, enabling a continuous learning workflow based on:
+The project introduces **PML (Python Modelling Language)**, a
+lightweight specification language inspired by JML (Java Modelling Language),
+and builds an end-to-end **MLOps pipeline with feedback-driven retraining**:
 
-- dynamic labeling through contract checking  
-- candidate training (baseline + challenger models)  
-- champion promotion using Recall on the *RISKY* class  
-- inference on unseen examples  
-- feedback-driven retraining loop  
+- Ingests Python code annotated with PML contracts
+- Treats code and specifications as structured data
+- Generates labeled datasets through dynamic execution and contract checking
+- Trains multiple candidate machine learning models automatically (baseline + challenger)
+- Evaluates candidates on a held-out TEST set (separate from training)
+- Selects and promotes a champion model based on a safety-oriented metric
+- Serves predictions as operational risk scores (`LOW`, `MEDIUM`, `HIGH`)
+- Runs inference on previously unseen code and collects feedback examples
+- Supports a simplified continuous learning loop (train → test → promote → feedback → retrain)
 
 ---
 
@@ -24,19 +32,24 @@ The implemented deliverables include:
 - Shared feature extraction schema (`pipeline/features.py`)
 - Candidate model training (`pipeline/train.py`)
 - Continuous Training Trigger (`ct_trigger.py`)
+- Central governance configuration (`config.yaml`)
 - Inference module (`inference/predict.py`)
+- Containerized CI pipeline with Jenkins (replicable execution environment)
 - Streamlit web interface (`app.py`)
-- Full documentation package (SSD, Governance, Development Plan)
+- Reproducibility and reset script (`reset.sh`)
+- Full documentation package (SSD, Governance, Development Plan), with Sphinx-ready API documentation support
 
 ---
 
 ## 3. Development Milestones
 
+The following milestones summarize the main implementation stages of SpecLens-PML, from dataset preparation to continuous learning deployment and final documentation delivery:
+
 - **M1** Dataset pipeline operational  
-- **M2** Baseline and challenger models implemented  
-- **M3** Held-out TEST evaluation completed  
-- **M4** Champion promotion mechanism implemented  
-- **M5** Inference with operational risk levels  
+- **M2** Baseline and challenger candidate models trained
+- **M3** Held-out TEST dataset (evaluation set not used during training)
+- **M4** Champion promotion mechanism 
+- **M5** Inference module producing operational risk levels: LOW, MEDIUM, HIGH
 - **M6** Feedback loop integrated into training  
 - **M7** Final demo and documentation delivery  
 
@@ -44,14 +57,18 @@ The implemented deliverables include:
 
 ## 4. Work Breakdown Structure (WBS)
 
+The Work Breakdown Structure below decomposes the project into its main engineering areas, highlighting the corresponding tasks and produced artifacts:
+
 | Area | Task | Output |
 |------|------|--------|
 | Parsing | PML contract extraction | Parsed specification units |
-| Data Pipeline | Dynamic dataset generation | TRAIN/TEST CSV datasets |
+| Data Pipeline | Dynamic dataset generation | TRAIN / TEST CSV datasets |
 | ML Kernel | Candidate model training | `logistic.pkl`, `forest.pkl` |
 | Governance | Promotion trigger | `best_model.pkl` champion |
+| Configuration | Continuous training policy rules | `config.yaml` |
 | Inference | Risk scoring and classification | LOW / MEDIUM / HIGH levels |
 | Feedback | High-risk unseen collection | `raw_feedback/` pool |
+| CI/CD | Containerized pipeline automation | Jenkins execution environment |
 | Deployment | Streamlit application | `app.py` interface |
 | Documentation | Technical reports | Submission package |
 
@@ -59,7 +76,8 @@ The implemented deliverables include:
 
 ## 5. Operational Workflow Diagram (MLOps Lifecycle)
 
-The following diagram represents the implemented operational lifecycle, including the feedback loop that reinjects high-risk unseen examples into training on subsequent runs.
+The full pipeline can be executed reproducibly from scratch using the provided `reset.sh` script, which clears generated artifacts and resets the feedback loop before a new run.
+The following diagram represents the implemented operational lifecycle, including the feedback loop that reinjects high-risk unseen examples into training on subsequent runs:
 
 ```mermaid
 flowchart TD
@@ -94,11 +112,11 @@ Development followed an iterative sprint-based organization:
 | Sprint | Focus | Deliverable |
 |--------|-------|------------|
 | S1 | Parser + Features | Specification extraction |
-| S2 | Dataset Builder | TRAIN/TEST dataset creation |
+| S2 | Dataset Builder | TRAIN / TEST dataset creation |
 | S3 | Candidate Training | Baseline + challenger models |
 | S4 | Governance Trigger | Champion promotion artifact |
 | S5 | Inference + Feedback | Risk levels + feedback pool |
-| S6 | Documentation + Demo | Final submission |
+| S6 | CI/CD + Documentation | Jenkins automation + final submission |
 
 ---
 
@@ -108,7 +126,7 @@ A sprint is ready to start when:
 
 - Raw pools are available (`raw_train/`, `raw_test/`, `raw_unseen/`)
 - System configuration is present (`config.yaml`)
-- Dependencies are installed (`requirements.txt`)
+- Dependencies are installed (via editable package installation which avoids ad-hoc `sys.path` modifications and guarantees consistent imports across modules)
 
 ---
 
@@ -116,14 +134,9 @@ A sprint is ready to start when:
 
 A sprint is considered complete when:
 
-- The pipeline executes end-to-end via `demo.py`
+- The pipeline executes end-to-end via `demo.py` 
 - A promoted champion model is produced (`models/best_model.pkl`)
-- Inference generates operational risk levels
+- Inference generates operational risk levels (LOW / MEDIUM / HIGH)
 - Feedback examples are correctly collected in `raw_feedback/`
 - Deliverables are reproducible and documented
 
----
-
-## 9. Note on Feedback Demonstration
-
-For demonstration purposes, the repository may include a small initial feedback seed to ensure that at least one feedback-driven retraining event can be observed during the first continuous learning cycle. In real deployments, this pool would start empty and grow progressively from production cases.

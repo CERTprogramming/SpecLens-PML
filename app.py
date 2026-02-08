@@ -1,7 +1,5 @@
 """
-app.py
-
-Streamlit web interface for SpecLens-PML.
+SpecLens-PML Streamlit web interface application.
 
 This module provides a lightweight graphical frontend to:
 
