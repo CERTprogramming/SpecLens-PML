@@ -1,4 +1,4 @@
-# SpecLens — Operational Governance & Versioning Document
+# SpecLens — Operational Governance and Versioning Document
 
 ## 1. Governance Scope
 

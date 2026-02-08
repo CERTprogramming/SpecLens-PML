@@ -1,4 +1,4 @@
-# SpecLens — Project Proposal & Development Plan
+# SpecLens — Project Proposal and Development Plan
 
 ## 1. Project Summary
 
