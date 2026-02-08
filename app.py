@@ -6,12 +6,13 @@ Streamlit web interface for SpecLens-PML.
 This module provides a lightweight graphical frontend to:
 
 - Execute the full MLOps demo pipeline (train/test/promotion/inference)
-- Trigger the Continuous Training promotion step
 - Upload and analyze new Python files annotated with PML contracts
 
-The Streamlit GUI is a presentation layer only:
+The Streamlit GUI is intentionally minimal:
 all MLOps logic remains implemented in the CLI scripts
 (e.g., demo.py, ct_trigger.py, inference/predict.py).
+
+The goal is to provide a simple operational entry point for exam demos.
 """
 
 from pathlib import Path
@@ -24,10 +25,8 @@ import streamlit as st
 # Repository root configuration
 # ---------------------------------------------------------------------------
 
-#: Root directory of the SpecLens-PML repository.
 ROOT = Path(__file__).parent
 
-# Configure the Streamlit page layout and browser tab title.
 st.set_page_config(page_title="SpecLens-PML", layout="wide")
 
 
@@ -40,15 +39,13 @@ st.caption("Data-driven Software Correctness with MLOps")
 
 
 # ---------------------------------------------------------------------------
-# Sidebar controls: Pipeline execution
+# Sidebar: Minimal pipeline execution
 # ---------------------------------------------------------------------------
 
-st.sidebar.header("MLOps Control")
+st.sidebar.header("Pipeline Control")
 
-# Run the full end-to-end demo workflow:
-# dataset generation → training → promotion → unseen inference.
-if st.sidebar.button("Run full pipeline (demo)"):
-    with st.spinner("Running full pipeline..."):
+if st.sidebar.button("Run full pipeline (demo.py)"):
+    with st.spinner("Running full continuous learning pipeline..."):
         result = subprocess.run(
             ["python3", "demo.py"],
             cwd=ROOT,
@@ -57,34 +54,21 @@ if st.sidebar.button("Run full pipeline (demo)"):
         )
 
     st.sidebar.success("Pipeline completed")
-    st.sidebar.text(result.stdout)
-
-# Trigger the Continuous Training promotion step only.
-if st.sidebar.button("Trigger Continuous Training"):
-    with st.spinner("Triggering retraining..."):
-        result = subprocess.run(
-            ["python3", "ct_trigger.py"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
-
-    st.sidebar.success("Continuous Training completed")
-    st.sidebar.text(result.stdout)
+    st.sidebar.code(result.stdout)
 
 
 # ---------------------------------------------------------------------------
 # Sidebar: Active champion model display
 # ---------------------------------------------------------------------------
 
-#: Pointer file storing the name of the currently promoted champion model.
-active_model_path = ROOT / "models" / "active_model.txt"
+champion_path = ROOT / "models" / "best_model.pkl"
 
-if active_model_path.exists():
-    active_model = active_model_path.read_text().strip()
+st.sidebar.markdown("### Active Champion Model")
 
-    st.sidebar.markdown("### Active model")
-    st.sidebar.code(active_model)
+if champion_path.exists():
+    st.sidebar.code("models/best_model.pkl")
+else:
+    st.sidebar.warning("No champion model found yet. Run the pipeline first.")
 
 
 # ---------------------------------------------------------------------------
@@ -93,27 +77,25 @@ if active_model_path.exists():
 
 st.header("Analyze Python Code")
 
-# Upload a Python file annotated with PML specifications.
 uploaded = st.file_uploader(
     "Upload a Python file annotated with PML",
     type="py",
 )
 
 if uploaded:
-    # Save the uploaded file temporarily inside the repository.
     tmp_path = ROOT / "tmp_uploaded.py"
     tmp_path.write_bytes(uploaded.read())
 
-    # Run inference using the promoted champion model.
-    with st.spinner("Analyzing code..."):
-        result = subprocess.run(
-            ["python3", "inference/predict.py", str(tmp_path)],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
+    if not champion_path.exists():
+        st.error("No trained model available. Please run the pipeline first.")
+    else:
+        with st.spinner("Analyzing code with champion model..."):
+            result = subprocess.run(
+                ["python3", "inference/predict.py", str(tmp_path)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
 
-    # Display the prediction output produced by inference/predict.py.
-    st.subheader("Analysis Result")
-    st.code(result.stdout)
-
+        st.subheader("Analysis Result")
+        st.code(result.stdout)

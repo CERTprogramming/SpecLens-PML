@@ -165,24 +165,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies (preferred installation option):
-
-```bash
-pip install -r requirements.txt
-```
-
-`requirements.txt` includes the following dependencies:
-
-```txt
-joblib
-pandas
-scikit-learn
-sphinx
-sphinx-rtd-theme
-streamlit
-```
-
-Install dependencies (package-style installation option):
+Install dependencies (package-style installation):
 
 ```bash
 pip install -e .
@@ -638,7 +621,7 @@ Possible next steps include:
 - Integrating more advanced program analysis features (control-flow, data-flow)
 - Extending PML with richer specification constructs
 - Adding stronger reproducibility controls (global seeding, deterministic labeling)
-- Adopting full MLOps tooling (CI/CD, experiment tracking, drift monitoring)
+- Adopting full MLOps tooling (CI/CD, experiment tracking, drift monitoring), for example through platforms such as Neptune.ai or MLflow to enable richer metric dashboards, lineage tracking, and collaborative governance
 - Exploring hybrid approaches that combine machine learning with formal methods
 
 With these extensions, SpecLens-PML could serve as a strong foundation

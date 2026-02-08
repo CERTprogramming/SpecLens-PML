@@ -2,29 +2,22 @@
 
 ## 1. Problem Definition
 
-**SpecLens-PML** is an educational data-driven system that applies
-Machine Learning and MLOps principles to the domain of **software correctness**.
+SpecLens-PML is an educational data-driven system applying Machine Learning and MLOps principles to the domain of **software correctness**.
 
-The project introduces **PML (Python Modelling Language)**, a lightweight specification language inspired by JML,
-and builds an end-to-end **MLOps pipeline with feedback-driven retraining**.
+The project introduces **PML (Python Modelling Language)**, a lightweight specification language inspired by JML, and provides an end-to-end pipeline with feedback-driven retraining.
 
-The system analyzes Python functions and methods annotated with PML contracts:
+The system analyzes Python functions annotated with PML contracts:
 
-- `@requires` (preconditions)
-- `@ensures` (postconditions)
+- `@requires` (preconditions)  
+- `@ensures` (postconditions)  
 - `@invariant` (class invariants)
 
-It predicts whether a given specification is:
+The ML task is formulated as a **binary classification problem**:
 
-- **SAFE (0)** — contracts hold under observed executions
-- **RISKY (1)** — contract violations or runtime failures are observed
+- **Input:** structural feature vector extracted from code + contracts  
+- **Output:** probability of being risky and an operational risk level (`LOW`, `MEDIUM`, `HIGH`)
 
-This is formulated as a **binary classification task**:
-
-- Input: structural feature vector extracted from a PML unit  
-- Output: risk probability + operational level (`LOW`, `MEDIUM`, `HIGH`)
-
-> SpecLens-PML provides a probabilistic decision-support signal, not a formal proof.
+SpecLens-PML provides probabilistic decision support rather than formal correctness guarantees.
 
 ---
 
@@ -32,43 +25,47 @@ This is formulated as a **binary classification task**:
 
 Primary stakeholders include:
 
-- Software engineers writing PML specifications  
-- Verification / QA teams reviewing correctness  
-- Developers integrating the demo pipeline in automation experiments  
+- Software engineers writing annotated Python code  
+- QA and verification teams reviewing correctness risks  
+- Developers experimenting with specification-driven MLOps automation  
 
 The system operates between traditional testing and full formal verification:
 
-- Like testing, it relies on **dynamic execution**
-- Like specification-based methods, it treats contracts as structured semantic signals
+- Like testing, it relies on **dynamic execution**  
+- Like specification-based approaches, it treats contracts as semantic signals  
 
 ---
 
 ## 3. Key Performance Indicators (KPIs)
 
-- Recall on the **RISKY** class (safety-oriented metric for promotion)
-- Accuracy / F1 on held-out TEST dataset
-- End-to-end latency for file analysis (< 2s per file)
-- Stability of predictions across retraining cycles
+The main evaluation metrics are:
+
+- **Recall on the RISKY class** (safety-oriented promotion metric)  
+- Accuracy and F1-score on a held-out TEST dataset  
+- End-to-end latency for file analysis (< 2 seconds per file)  
+- Stability of predictions across retraining cycles  
+
+- Given the safety-oriented domain, SpecLens prioritizes interpretable models (logistic regression, random forest) and a decision-support framing rather than opaque black-box predictions.
 
 ---
 
-## 4. Data Specification (as implemented)
+## 4. Data Specification
 
-### 4.1 Data Pools
+### 4.1 Data Sources and Pools
 
-The repository contains three pools of annotated examples:
+The repository contains four pools of annotated Python examples:
 
-- `data/raw_train/` — training pool  
-- `data/raw_test/` — held-out evaluation pool  
-- `data/raw_unseen/` — inference-only pool  
-- `data/raw_feedback/` — feedback pool collected from high-risk inference  
+- `raw_train/` — training pool  
+- `raw_test/` — held-out evaluation pool  
+- `raw_unseen/` — inference-only pool  
+- `raw_feedback/` — collected high-risk examples  
 
 Generated datasets:
 
-- `data/datasets_train.csv`
-- `data/datasets_test.csv`
+- `datasets_train.csv`  
+- `datasets_test.csv`  
 
-These CSV files are produced automatically by `demo.py` and are not tracked as repository state.
+These datasets are automatically produced during execution and are not tracked as static repository artifacts.
 
 ---
 
@@ -77,9 +74,9 @@ These CSV files are produced automatically by `demo.py` and are not tracked as r
 Labels are produced through **dynamic execution and contract checking**:
 
 - functions are executed on generated inputs  
-- pre/postconditions are checked  
-- violations or failures → labeled **RISKY**  
-- otherwise → labeled **SAFE**
+- pre/postconditions are validated  
+- violations or runtime failures → **RISKY**  
+- otherwise → **SAFE**
 
 ---
 
@@ -87,45 +84,48 @@ Labels are produced through **dynamic execution and contract checking**:
 
 Feature extraction is centralized in `pipeline/features.py` and shared across training and inference.
 
-Extracted features include:
+Features include:
 
 - number of parameters  
-- number of requires/ensures/invariants  
+- number of contracts (`requires`, `ensures`, `invariant`)  
 - lines of code  
-- additional structural schema features  
+- additional structural indicators  
 
 ---
 
-## 5. Functional and Non-Functional Requirements
+## 5. Requirements
 
-### Functional Requirements (FR)
+### Functional Requirements
 
-- FR-01 Parse Python code annotated with PML contracts  
-- FR-02 Extract structural features for each PML unit  
-- FR-03 Build TRAIN and TEST datasets automatically  
-- FR-04 Train candidate models (baseline + challenger)  
-- FR-05 Evaluate candidates on held-out TEST set  
-- FR-06 Promote champion model based on Recall(RISKY)  
-- FR-07 Serve predictions as operational risk levels  
-- FR-08 Collect feedback examples from unseen inference  
-
----
-
-### Non-Functional Requirements (NFR)
-
-- NFR-01 Performance: analysis completes in < 2 seconds per file  
-- NFR-02 Separation: TRAIN is never mixed with TEST  
-- NFR-03 Configurability: policies controlled via `config.yaml`  
-- NFR-04 Maintainability: modular separation of pipeline stages  
-- NFR-05 Reproducibility: pipeline can be reset via `reset.sh`
+| ID | Requirement | Acceptance Criteria |
+|----|------------|---------------------|
+| FR-01 | Parse PML contracts from Python code | Units parsed without errors |
+| FR-02 | Extract structural features | Feature vector matches schema |
+| FR-03 | Build TRAIN/TEST datasets automatically | CSV datasets generated |
+| FR-04 | Train candidate models | Candidate artifacts saved |
+| FR-05 | Evaluate candidates on TEST set | Metrics report produced |
+| FR-06 | Promote champion model | `best_model.pkl` updated |
+| FR-07 | Serve inference predictions | Risk level returned |
+| FR-08 | Collect feedback from unseen inference | High-risk cases stored |
 
 ---
 
-## 6. Architecture Overview (Implemented Workflow)
+### Non-Functional Requirements
+
+| ID | Requirement | Metric |
+|----|------------|--------|
+| NFR-01 | Performance | < 2s per file analysis |
+| NFR-02 | Data separation | TRAIN never mixed with TEST |
+| NFR-03 | Configurability | Policies controlled via YAML |
+| NFR-04 | Maintainability | Modular pipeline structure |
+| NFR-05 | Reproducibility | Resettable via `reset.sh` |
+
+---
+
+## 6. Architecture Overview
 
 ```mermaid
 flowchart TD
-
     A[Python Code + PML Contracts] --> B1[Build TRAIN dataset]
     A --> B2[Build TEST dataset]
 
@@ -140,47 +140,20 @@ flowchart TD
     F --> G[Champion model: best_model.pkl]
 
     G --> H[Inference on UNSEEN pool]
-    H --> I[raw_unseen/]
-
     H --> J[HIGH risk detected]
     J --> K[raw_feedback/]
 
     K --> B1
 ```
 
-This diagram represents the full implemented workflow:
-feedback examples are collected and re-injected into TRAIN at the next run.
-
 ---
 
-## 7. Continuous Learning Loop (Educational Scope)
+## 7. Risk Analysis
 
-The project demonstrates a simplified continuous learning cycle:
-
-**train → test → promote → unseen → feedback → retrain**
-
-The focus is on:
-
-- lifecycle management  
-- reproducibility  
-- governance through promotion  
-- feedback-driven improvement  
-
----
-
-## 8. Risk Analysis
-
-Main risks:
-
-- Concept drift as coding/specification patterns evolve  
-- Class imbalance reducing detection of risky cases  
-- Overfitting due to limited educational datasets  
-- Misinterpretation of probabilistic outputs  
-
-Mitigations:
-
-- feedback-driven retraining  
-- recall-oriented promotion metric  
-- explicit LOW/MEDIUM/HIGH mapping  
-- decision-support framing (not formal guarantees)
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Drift in coding/spec patterns | Medium | Feedback-driven retraining |
+| Class imbalance | Medium | Recall-oriented promotion |
+| Overfitting on small datasets | Low | Held-out TEST evaluation |
+| Misinterpretation of probabilistic outputs | Medium | Decision-support framing |
 

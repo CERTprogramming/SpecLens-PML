@@ -1,7 +1,0 @@
-joblib
-pandas
-PyYAML
-scikit-learn
-sphinx
-sphinx-rtd-theme
-streamlit
