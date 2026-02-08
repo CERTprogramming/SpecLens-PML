@@ -5,8 +5,6 @@
 SpecLens-PML is an educational data-driven system that applies
 Machine Learning and MLOps principles to the domain of software
 correctness.
-It was developed as part of the Data-Driven Systems Engineering course (MSc Computer Engineering).
-
 The project introduces PML (Python Modelling Language), a
 lightweight specification language inspired by JML (Java Modelling Language),
 and builds an end-to-end MLOps pipeline with feedback-driven retraining:
