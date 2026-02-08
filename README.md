@@ -359,7 +359,7 @@ and collect feedback for future training runs.
 
 ## Web Interface (Streamlit)
 
-SpecLens-PML also provides a lightweight **web GUI** (Graphical User Interface) implemented with
+SpecLens-PML also provides a lightweight web GUI (Graphical User Interface) implemented with
 Streamlit. The GUI does not replace the pipeline: it is a thin
 presentation layer on top of the existing backend components.
 
@@ -656,6 +656,6 @@ Possible next steps include:
 - Exploring hybrid approaches that combine machine learning with formal methods
 
 With these extensions, SpecLens-PML could serve as a strong foundation
-for a thesis focused on **data-driven software correctness**,
+for a thesis focused on data-driven software correctness,
 continuous verification and modern MLOps governance for safety-oriented systems.
 
