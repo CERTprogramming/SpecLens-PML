@@ -3,20 +3,19 @@ SpecLens-PML Streamlit web interface application.
 
 This module provides a lightweight graphical frontend to:
 
-- Execute the full MLOps demo pipeline (train/test/promotion/inference)
+- Execute the full MLOps demo pipeline (train / test / promotion / inference)
 - Upload and analyze new Python files annotated with PML contracts
 
 The Streamlit GUI is intentionally minimal:
 all MLOps logic remains implemented in the CLI scripts
-(e.g., demo.py, ct_trigger.py, inference/predict.py).
-
-The goal is to provide a simple operational entry point for exam demos.
+(e.g., demo.py, ct_trigger.py, inference/predict.py)
+and can also be executed in a containerized CI environment via Jenkins.
 """
 
 from pathlib import Path
-import subprocess
 
 import streamlit as st
+import subprocess
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +23,6 @@ import streamlit as st
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).parent
-
 st.set_page_config(page_title="SpecLens-PML", layout="wide")
 
 

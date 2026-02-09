@@ -5,13 +5,14 @@
 # Central configuration file for the SpecLens-PML project.
 #
 # This file defines:
+#
 # - Candidate model families (baseline + challenger)
 # - Operational risk thresholds for inference
 # - Continuous Training governance policies
 #
-# The system follows a Champion/Challenger MLOps workflow:
+# The system follows a Champion / Challenger MLOps workflow:
 #
-#   TRAIN → Train candidates → TEST → Promote champion → UNSEEN → Feedback
+#   train → test → promote → unseen → feedback → retrain
 #
 # ======================================================
 
@@ -40,8 +41,9 @@ models:
 # ------------------------------------------------------
 
 risk_thresholds:
+
   # Risk scores produced by the classifier are mapped into
-  # qualitative operational levels.
+  # qualitative operational levels
 
   # Scores below this value are considered LOW risk
   low: 0.20
@@ -60,21 +62,21 @@ risk_thresholds:
 mlops:
 
   # Safety-oriented promotion metric:
-  # Champion is selected by maximizing Recall on the RISKY class.
+  # Champion is selected by maximizing Recall on the RISKY class
   min_recall_risky: 0.60
 
   # Feedback-driven retraining trigger:
   # Retraining starts only if at least N unseen examples have been
-  # collected into the feedback pool.
+  # collected into the feedback pool
   feedback_trigger_size: 2
 
   # Retrain automatically if no champion model exists yet
   retrain_if_no_champion: true
 
   # Promotion policy:
-  # A new candidate is promoted only if it improves over the current champion.
+  # A new candidate is promoted only if it improves over the current champion
   promote_only_if_better: true
 
-  # Reproducibility option (recommended for exams)
+  # Reproducibility option
   deterministic_runs: false
 

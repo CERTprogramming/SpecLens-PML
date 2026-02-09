@@ -15,15 +15,14 @@ Annotated Python programs are treated as structured training data:
 The output is a supervised dataset ready for ML training.
 """
 
-import importlib.util
-import random
-import sys
 from pathlib import Path
-
-import pandas as pd
-
 from pipeline.features import extract_features
 from pml.parser import parse_file
+
+import importlib.util
+import pandas as pd
+import random
+import sys
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +165,7 @@ def label_function(func_info, module, trials: int = 20) -> int:
     # --------------------------------------------------------
     # Resolve function target (top-level or class method)
     # --------------------------------------------------------
+
     if func_info.get("class"):
         cls_name = func_info["class"]
         cls = getattr(module, cls_name, None)
@@ -192,6 +192,7 @@ def label_function(func_info, module, trials: int = 20) -> int:
     # --------------------------------------------------------
     # Randomized execution trials
     # --------------------------------------------------------
+
     for _ in range(trials):
 
         # Generate fuzzed arguments
@@ -207,12 +208,14 @@ def label_function(func_info, module, trials: int = 20) -> int:
         # ----------------------------------------------------
         # Step 1: Check preconditions
         # ----------------------------------------------------
+
         if any(not eval_expr(r, env) for r in func_info["requires"]):
             continue
 
         # ----------------------------------------------------
         # Step 2: Execute function
         # ----------------------------------------------------
+
         try:
             result = func(*args)
         except Exception:
@@ -223,6 +226,7 @@ def label_function(func_info, module, trials: int = 20) -> int:
         # ----------------------------------------------------
         # Step 3: Check postconditions
         # ----------------------------------------------------
+
         for e in func_info["ensures"]:
             if not eval_expr(e, env):
                 return 1

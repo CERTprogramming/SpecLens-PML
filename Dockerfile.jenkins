@@ -23,6 +23,7 @@ FROM jenkins/jenkins:lts
 # ---------------------------------------------------------
 # Switch to root user
 # ---------------------------------------------------------
+#
 # The default Jenkins user cannot install system packages,
 # so we temporarily escalate privileges.
 USER root
@@ -32,6 +33,7 @@ USER root
 # Install Python runtime + tools
 # ---------------------------------------------------------
 # Needed for:
+#
 # - python3 execution
 # - virtual environments (.venv)
 # - pip dependency installation

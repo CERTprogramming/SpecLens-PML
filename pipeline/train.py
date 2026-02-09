@@ -20,19 +20,16 @@ Continuous Training later evaluates all candidates on the held-out TEST set
 and promotes the best-performing model based on **Recall on the RISKY class**.
 """
 
-import argparse
 from pathlib import Path
-
-import joblib
-import pandas as pd
-import yaml
-
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, recall_score
-
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 
+import argparse
+import joblib
+import pandas as pd
+import yaml
 
 # ------------------------------------------------------------
 # Configuration Loader

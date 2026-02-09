@@ -51,6 +51,7 @@ def extract_features(func_info: dict) -> dict:
         # ----------------------------------------------------
         # Structural features
         # ----------------------------------------------------
+
         "n_params": len(params),
         "n_requires": len(requires),
         "n_ensures": len(ensures),
@@ -64,12 +65,14 @@ def extract_features(func_info: dict) -> dict:
         # ----------------------------------------------------
         # Parameter-level hints
         # ----------------------------------------------------
+
         "has_self": int(bool(params) and params[0] == "self"),
         "has_other": int("other" in params),
 
         # ----------------------------------------------------
         # Contract complexity proxies
         # ----------------------------------------------------
+
         "requires_complexity": sum(len(r) for r in requires),
         "ensures_complexity": sum(len(e) for e in ensures),
 

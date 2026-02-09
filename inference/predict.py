@@ -17,6 +17,7 @@ This module represents the *serving* component of the pipeline.
 """
 
 from pathlib import Path
+
 import joblib
 import pandas as pd
 import yaml

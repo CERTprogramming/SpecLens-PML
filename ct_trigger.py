@@ -3,13 +3,11 @@ Continuous Training Trigger for SpecLens-PML.
 
 This module implements a simple Champion/Challenger governance strategy:
 
-- Multiple candidate models are trained (logistic, forest).
-- Each candidate is evaluated on the same held-out TEST dataset.
-- The model with the best Recall on the RISKY class is promoted.
+- Multiple candidate models are trained (logistic, forest)
+- Each candidate is evaluated on the same held-out TEST dataset
+- The model with the best recall on the RISKY class is promoted
 
-Promotion occurs only if:
-
-- Recall(RISKY) >= configured minimum threshold
+Promotion occurs only if the RISKY-class recall is above a configurable minimum threshold.
 
 The promoted champion model is always saved as:
 
@@ -17,31 +15,30 @@ The promoted champion model is always saved as:
 """
 
 from pathlib import Path
+from pipeline.train import evaluate_model
 
 import joblib
 import pandas as pd
 import yaml
-
-from pipeline.train import evaluate_model
 
 
 # ---------------------------------------------------------------------------
 # Paths and Configuration
 # ---------------------------------------------------------------------------
 
-#: Directory containing all trained candidate and champion model artifacts.
+# Directory containing all trained candidate and champion model artifacts.
 MODELS_DIR = Path("models")
 
-#: Candidate model registry (baseline + challenger).
+# Candidate model registry (baseline + challenger).
 CANDIDATES = {
     "logistic": MODELS_DIR / "logistic.pkl",
     "forest": MODELS_DIR / "forest.pkl",
 }
 
-#: Path where the promoted champion model is stored.
+# Path where the promoted champion model is stored.
 BEST_MODEL_PATH = MODELS_DIR / "best_model.pkl"
 
-#: Central configuration file defining MLOps governance rules.
+# Central configuration file defining MLOps governance rules.
 CONFIG_PATH = Path("config.yaml")
 
 
@@ -80,7 +77,7 @@ def main(test_dataset: Path) -> None:
 
     This function evaluates all available candidate models on the held-out
     TEST dataset and promotes the best-performing one according to the
-    safety-oriented metric: Recall on the RISKY class.
+    safety-oriented metric: recall on the RISKY class.
 
     Parameters
     ----------
@@ -104,6 +101,7 @@ def main(test_dataset: Path) -> None:
     # -----------------------------------------------------------------------
     # Load TEST dataset (held-out evaluation set)
     # -----------------------------------------------------------------------
+
     if not test_dataset.exists():
         raise FileNotFoundError(f"Test dataset not found: {test_dataset}")
 
@@ -124,6 +122,7 @@ def main(test_dataset: Path) -> None:
     # -----------------------------------------------------------------------
     # Evaluate all candidate models
     # -----------------------------------------------------------------------
+
     for name, path in CANDIDATES.items():
 
         if not path.exists():
@@ -146,6 +145,7 @@ def main(test_dataset: Path) -> None:
     # -----------------------------------------------------------------------
     # Promotion Decision
     # -----------------------------------------------------------------------
+
     if best_model is None:
         print("\nNo valid candidate models found.")
         return

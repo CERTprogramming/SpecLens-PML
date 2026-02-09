@@ -15,10 +15,11 @@ This implements a simplified continuous learning loop:
     train → test → promote → unseen → feedback → retrain
 """
 
+from pathlib import Path
+
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +128,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # Step 1: Prepare TRAIN pool (with feedback)
     # -----------------------------------------------------------------------
+
     print("\n=== Step 1: Preparing TRAIN dataset (with feedback) ===")
 
     prepare_training_pool(train_dir, feedback_dir, tmp_train_dir)
@@ -141,6 +143,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # Step 2: Build TEST dataset (held-out evaluation set)
     # -----------------------------------------------------------------------
+
     print("\n=== Step 2: Building TEST dataset ===")
 
     run_step([
@@ -153,6 +156,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # Step 3: Train candidate models
     # -----------------------------------------------------------------------
+
     print("\n=== Step 3: Training candidate models ===")
 
     run_step([
@@ -174,6 +178,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # Step 4: Champion promotion
     # -----------------------------------------------------------------------
+
     print("\n=== Step 4: Continuous Training Promotion ===")
 
     run_step([
@@ -185,6 +190,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # Step 5: Inference on UNSEEN examples + feedback collection
     # -----------------------------------------------------------------------
+
     print("\n=== Step 5: Inference on UNSEEN examples ===")
 
     feedback_dir.mkdir(exist_ok=True)

@@ -5,10 +5,10 @@ SpecLens-PML Jenkins CI Pipeline
 
 This Jenkins pipeline automates the full Continuous Learning loop:
 
-   TRAIN → TEST → Train Candidates → Promote Champion
-        → Inference on UNSEEN → Feedback Collection → Retrain
+   train → test → promote → unseen → feedback → retrain
 
 Key idea:
+
 - Feedback is accumulated across runs
 - Reset is optional (manual)
 
@@ -22,16 +22,19 @@ pipeline {
     Run on any available Jenkins agent (container node)
     ---------------------------------------------------------
     */
+
     agent any
 
 
     /*
     ---------------------------------------------------------
     Optional parameter:
+
     - RESET_DEMO=true will wipe all artifacts and feedback
     - Default is false, so the model improves across builds
     ---------------------------------------------------------
     */
+
     parameters {
         booleanParam(
             name: "RESET_DEMO",
@@ -47,9 +50,11 @@ pipeline {
         =====================================================
         1. Checkout Repository
         =====================================================
+
         Jenkins pulls the latest version of SpecLens-PML
         from GitHub, including the Jenkinsfile itself.
         */
+
         stage("Checkout Repository") {
             steps {
                 echo "=== Checking out SpecLens-PML repository ==="
@@ -62,11 +67,13 @@ pipeline {
         =====================================================
         2. Setup Python Environment
         =====================================================
+
         Creates a reproducible Python virtual environment
         inside the Jenkins workspace.
 
         This ensures dependencies are isolated and consistent.
         */
+
         stage("Setup Python Environment") {
             steps {
                 echo "=== Setting up Python virtual environment ==="
@@ -85,6 +92,7 @@ pipeline {
         =====================================================
         3. Optional Reset (Manual Governance Step)
         =====================================================
+
         Resetting removes:
 
         - accumulated feedback examples
@@ -96,6 +104,7 @@ pipeline {
         This stage runs ONLY if RESET_DEMO=true.
         Otherwise, feedback is preserved across builds.
         */
+
         stage("Optional Reset") {
             when {
                 expression { params.RESET_DEMO == true }
@@ -116,6 +125,7 @@ pipeline {
         =====================================================
         4. Prepare TRAIN Pool with Feedback
         =====================================================
+
         Continuous Learning principle:
 
         Training data = raw_train + accumulated raw_feedback
@@ -123,6 +133,7 @@ pipeline {
         Feedback comes from previous inference runs,
         so the model improves over time.
         */
+
         stage("Prepare TRAIN Pool with Feedback") {
             steps {
                 echo "=== Building training pool (raw_train + accumulated feedback) ==="
@@ -147,12 +158,15 @@ pipeline {
         =====================================================
         5. Build TRAIN Dataset
         =====================================================
+
         Converts contract-annotated Python functions into
         numeric ML features + risk labels.
 
         Output:
-    - data/datasets_train.csv
+
+        - data/datasets_train.csv
         */
+
         stage("Build TRAIN Dataset") {
             steps {
                 sh """
@@ -173,14 +187,16 @@ pipeline {
         =====================================================
         6. Build TEST Dataset (Held-Out Governance Split)
         =====================================================
+
         TEST is never used for training.
 
         It is only used to evaluate candidate models
         before promotion.
 
         Output:
-    - data/datasets_test.csv
+        - data/datasets_test.csv
         */
+
         stage("Build TEST Dataset") {
             steps {
                 sh """
@@ -199,15 +215,17 @@ pipeline {
         =====================================================
         7. Train Candidate Models
         =====================================================
+
         Two candidate families are trained:
 
         - Logistic Regression (baseline)
         - Random Forest (challenger)
 
         Output artifacts:
-    - models/logistic.pkl
-    - models/forest.pkl
+        - models/logistic.pkl
+        - models/forest.pkl
         */
+
         stage("Train Candidate Models") {
             steps {
                 sh """
@@ -225,6 +243,7 @@ pipeline {
         =====================================================
         8. Promote Champion Model (Continuous Training Trigger)
         =====================================================
+
         Governance decision step:
 
         - Evaluate candidates on TEST
@@ -232,8 +251,9 @@ pipeline {
         - Promote champion for serving
 
         Output:
-    - models/best_model.pkl
+        - models/best_model.pkl
         */
+
         stage("Promote Champion Model") {
             steps {
                 sh """
@@ -250,16 +270,18 @@ pipeline {
         =====================================================
         9. Run Inference + Collect Feedback
         =====================================================
+
         The champion model is applied to UNSEEN examples.
 
         If a HIGH-risk function is detected,
         the example is copied into:
 
-    - data/raw_feedback/
+        - data/raw_feedback/
 
         This is the feedback loop that enables
         continuous improvement across builds.
         */
+
         stage("Run Inference + Collect Feedback") {
             steps {
                 echo "=== Running inference on unseen examples ==="
@@ -281,6 +303,7 @@ pipeline {
         =====================================================
         10. Archive Artifacts (Traceability)
         =====================================================
+
         Stores datasets and trained models as Jenkins artifacts.
 
         This provides:
@@ -289,6 +312,7 @@ pipeline {
         - audit trail
         - experiment tracking
         */
+
         stage("Archive Artifacts") {
             steps {
                 echo "=== Archiving ML artifacts ==="
@@ -308,6 +332,7 @@ pipeline {
     Post Actions
     =========================================================
     */
+
     post {
 
         success {

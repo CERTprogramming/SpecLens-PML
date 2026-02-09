@@ -21,15 +21,10 @@ This design makes the parser robust across all SpecLens demo examples.
 """
 
 from __future__ import annotations
-
-# ---------------------------------------------------------------------------
-# Imports
-# ---------------------------------------------------------------------------
-
-import ast
 from pathlib import Path
 from typing import List, Tuple, Dict
 
+import ast
 
 # ---------------------------------------------------------------------------
 # Contract Extraction Helpers
@@ -74,6 +69,10 @@ def _extract_contracts(lines: List[str]) -> Tuple[List[str], List[str], List[str
     return requires, ensures, invariants
 
 
+# ---------------------------------------------------------------------------
+# Comment Block Utilities
+# ---------------------------------------------------------------------------
+
 def _comment_block_above(lines: List[str], lineno: int) -> List[str]:
     """
     Collect contiguous comment lines immediately above a definition.
@@ -108,6 +107,9 @@ def _comment_block_above(lines: List[str], lineno: int) -> List[str]:
     block.reverse()
     return block
 
+# ---------------------------------------------------------------------------
+# In-Function Comment Scanner
+# ---------------------------------------------------------------------------
 
 def _all_comments_inside_function(lines: List[str], node: ast.FunctionDef) -> List[str]:
     """
@@ -200,11 +202,13 @@ def parse_file(path: Path) -> List[Dict]:
     # -----------------------------------------------------------------------
     # Traverse top-level AST nodes
     # -----------------------------------------------------------------------
+
     for node in tree.body:
 
         # -------------------------------------------------------------------
         # Top-level functions
         # -------------------------------------------------------------------
+
         if isinstance(node, ast.FunctionDef):
 
             above = _comment_block_above(lines, node.lineno)
@@ -227,6 +231,7 @@ def parse_file(path: Path) -> List[Dict]:
         # -------------------------------------------------------------------
         # Classes and methods
         # -------------------------------------------------------------------
+
         elif isinstance(node, ast.ClassDef):
 
             # Extract class-level invariants
