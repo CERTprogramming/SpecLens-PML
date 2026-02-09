@@ -152,7 +152,7 @@ Development followed an iterative sprint-based organization:
 | S3 | Candidate Training | Baseline + challenger models |
 | S4 | Governance Trigger | Champion promotion artifact |
 | S5 | Inference + Feedback | Risk levels + feedback pool |
-| S6 | CI + Documentation | Jenkins automation + final submission |
+| S6 | CI + GUI + Documentation | Jenkins automation + Streamlit demo + final submission |
 
 ---
 
@@ -201,6 +201,7 @@ Execution and Reproducibility:
 CI Infrastructure:
 
 - Containerized Continuous Integration pipeline executed through Jenkins
+- Streamlit-based GUI (`app.py`) providing an interactive entry point for inference and exam demonstrations
 - The Jenkins setup replicates the full training and evaluation workflow in an isolated environment, ensuring portability beyond the developer machine
 
 Data and Model Artifacts:

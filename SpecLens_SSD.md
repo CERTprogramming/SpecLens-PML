@@ -15,8 +15,8 @@ The system analyzes Python functions annotated with PML contracts:
 - `@ensures` (postconditions)  
 - `@invariant` (class invariants)
 
-The ML task is formulated as a binary classification problem (SAFE vs RISKY).
-Operational risk levels (LOW / MEDIUM / HIGH) are derived as a post-processing layer
+The ML task is formulated as a binary classification problem (`SAFE / RISKY`).
+Operational risk levels (`LOW / MEDIUM / HIGH`) are derived as a post-processing layer
 on top of the model prediction to support governance decisions:
 
 - Input: structural feature vector extracted from code + contracts  
@@ -45,7 +45,7 @@ The system operates between traditional testing and full formal verification:
 
 The SpecLens-PML prototype focuses on the following safety-oriented and operational KPIs:
 
-- Candidate models are compared on the held-out TEST set and the one achieving the highest recall on the RISKY class (above a minimum threshold in config.yaml) is promoted as the serving champion (best_model.pkl)
+- Candidate models are compared on the held-out TEST set and the one achieving the highest recall on the RISKY class (above a minimum threshold in `config.yaml`) is promoted as the serving champion (`best_model.pkl`)
 - Interactive inference remains fast on single files, whereas training and retraining costs scale with dataset growth
 
 Given the safety-oriented domain, SpecLens prioritizes interpretable models (logistic regression, random forest) and a decision-support advisory, rather than black-box predictions.
@@ -77,8 +77,8 @@ Labels are produced through dynamic execution and contract checking:
 
 - Functions are executed on generated inputs  
 - Pre / postconditions are validated  
-- Contract violations detected at runtime (RISKY)
-- Otherwise (SAFE)
+- Contract violations detected at runtime (`RISKY`)
+- Otherwise (`SAFE`)
 
 ---
 

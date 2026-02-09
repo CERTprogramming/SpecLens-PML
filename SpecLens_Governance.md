@@ -9,6 +9,7 @@ SpecLens-PML implements an educational governance strategy focused on:
 - Policy-driven governance thresholds defined in configuration (`config.yaml`)
 - Controlled serving through a single deployed artifact (`best_model.pkl`)
 - Automated CI execution via containerized Jenkins pipeline
+- Operational access through a minimal Streamlit GUI (`app.py`) for interactive inference and demos
 - Feedback collection for continuous retraining
 - Reproducibility through reset and deterministic execution flow
 
@@ -71,7 +72,7 @@ Promotion is implemented in `ct_trigger.py`:
 
 - Load candidate models  
 - Evaluate on held-out TEST dataset  
-- Compute Recall on the RISKY class  
+- Compute recall on the RISKY class  
 - Promote the best candidate (`models/best_model.pkl`)
 
 This governance rule ensures:
@@ -152,7 +153,7 @@ Instead of relying on external observability stacks (e.g., Prometheus, Grafana),
 - Potential drift in specification patterns can also be monitored.
   In case of suspected drift (i.e., incoming code / specification patterns differing in number and complexity from the training distribution), 
   SpecLens-PML does not implement a dedicated drift detection service, but addresses the issue through its feedback-driven retraining mechanism: 
-  new representative examples can be collected and the pipeline re-executed to real ign the model with evolving specification structures:
+  new representative examples can be collected and the pipeline re-executed to realign the model with evolving specification structures:
 
 | Signal | Response Action |
 |--------|----------------|
