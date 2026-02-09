@@ -20,7 +20,7 @@ Operational risk levels (`LOW / MEDIUM / HIGH`) are derived as a post-processing
 on top of the model prediction to support governance decisions:
 
 - Input: structural feature vector extracted from code + contracts  
-- Output: probability of being RISKY and an operational risk level (`LOW`, `MEDIUM`, `HIGH`)
+- Output: probability of being RISKY and an operational risk level
 
 SpecLens-PML provides probabilistic decision support rather than formal correctness guarantees.
 
