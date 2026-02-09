@@ -5,10 +5,9 @@
 SpecLens-PML is an educational data-driven system that applies
 Machine Learning and MLOps principles to the domain of software
 correctness.
-
 The project introduces PML (Python Modelling Language), a
 lightweight specification language inspired by JML (Java Modelling Language),
-and builds an end-to-end MLOps pipeline with feedback-driven retraining
+and builds an end-to-end MLOps pipeline with feedback-driven retraining.
 
 The system analyzes Python functions annotated with PML contracts:
 
@@ -32,7 +31,7 @@ SpecLens-PML provides probabilistic decision support rather than formal correctn
 Primary stakeholders include:
 
 - Software engineers writing annotated Python code  
-- QA and verification teams reviewing correctness risks  
+- Quality Assurance (QA) and verification teams reviewing correctness risks  
 - Developers experimenting with specification-driven MLOps automation  
 
 The system operates between traditional testing and full formal verification:
@@ -44,15 +43,12 @@ The system operates between traditional testing and full formal verification:
 
 ## 3. Key Performance Indicators (KPIs)
 
+The SpecLens-PML prototype focuses on the following safety-oriented and operational KPIs:
 
-SpecLens-PML is evaluated through a set of safety-oriented and operational KPIs:
+- Candidate models are compared on the held-out TEST set and only the one achieving the highest RISKY-class above a minimum threshold (configured in `config.yaml`) is promoted as the serving champion (`best_model.pkl`)
+- Interactive inference remains fast on single files, whereas training and retraining costs scale with dataset growth
 
-- Recall on the RISKY class (used as the main governance metric to ensure that high-risk specification violations are detected)
-- Accuracy and F1-score on a held-out TEST dataset (measuring overall classification quality and generalization beyond the training pool)
-- End-to-end latency for file analysis (< 2 seconds per file, ensuring that the system remains usable as an interactive decision-support tool)
-- Stability of predictions across retraining cycles (preventing excessive behavioral shifts when feedback examples are reinjected)
-
-Given the safety-oriented domain, SpecLens prioritizes interpretable models (logistic regression, random forest) and a decision-support framing rather than opaque black-box predictions.
+Given the safety-oriented domain, SpecLens prioritizes interpretable models (logistic regression, random forest) and a decision-support advisory, rather than black-box predictions.
 
 ---
 
@@ -60,10 +56,10 @@ Given the safety-oriented domain, SpecLens prioritizes interpretable models (log
 
 The repository contains four pools of annotated Python examples:
 
-- `raw_train/` — training pool  
-- `raw_test/` — held-out evaluation pool  
-- `raw_unseen/` — inference-only pool  
-- `raw_feedback/` — collected high-risk examples  
+- `raw_train/` (training pool)
+- `raw_test/` (held-out evaluation pool)
+- `raw_unseen/` (inference-only pool)
+- `raw_feedback/` (collected high-risk examples)
 
 Generated datasets:
 
@@ -79,8 +75,8 @@ These datasets are automatically produced during execution and are not tracked a
 Labels are produced through dynamic execution and contract checking:
 
 - Functions are executed on generated inputs  
-- Pre/postconditions are validated  
-- Violations or runtime failures (RISKY) 
+- Pre / postconditions are validated  
+- Contract violations detected at runtime (RISKY)
 - Otherwise (SAFE)
 
 ---
@@ -93,8 +89,8 @@ Features include:
 
 - Number of parameters  
 - Number of contracts (`requires`, `ensures`, `invariant`)  
-- Lines of code  
-- Additional structural indicators  
+- Additional structural features extracted from the code and its contracts (e.g., number of preconditions / postconditions)
+- Lines of code (LOC) 
 
 ---
 
@@ -117,7 +113,7 @@ Non-Functional Requirements:
 
 | ID | Requirement | Metric |
 |----|------------|--------|
-| NFR-01 | Performance | < 2s per file analysis |
+| NFR-01 | Performance | Inference latency low for individual files, while training time naturally scales with dataset size |
 | NFR-02 | Data separation | TRAIN never mixed with TEST |
 | NFR-03 | Configurability | Policies controlled via YAML |
 | NFR-04 | Maintainability | Modular pipeline structure |
@@ -127,10 +123,12 @@ Non-Functional Requirements:
 
 ## 8. Architecture Overview
 
-The following diagram summarizes the end-to-end SpecLens-PML architecture, from dataset generation and candidate training to governance-based promotion, inference and feedback-driven continuous retraining:
+The full pipeline can be executed reproducibly from scratch using the provided `reset.sh` script, which clears generated artifacts and resets the feedback loop before a new run.
+The following diagram represents the implemented operational lifecycle, including the feedback loop that reinjects high-risk unseen examples into training on subsequent runs:
 
 ```mermaid
 flowchart TD
+
     A[Python Code + PML Contracts] --> B1[Build TRAIN dataset]
     A --> B2[Build TEST dataset]
 
@@ -145,11 +143,15 @@ flowchart TD
     F --> G[Champion model: best_model.pkl]
 
     G --> H[Inference on UNSEEN pool]
+    H --> I[raw_unseen/]
+
     H --> J[HIGH risk detected]
     J --> K[raw_feedback/]
 
     K --> B1
 ```
+
+This diagram represents the full implemented workflow: feedback examples are collected and re-injected into TRAIN at the next run.
 
 ---
 
@@ -162,5 +164,5 @@ The table below summarizes four key technical and operational risks in SpecLens-
 | Drift in coding / spec patterns | Medium | Feedback-driven retraining |
 | Class imbalance | Medium | Recall-oriented promotion |
 | Overfitting on small datasets | Low | Held-out TEST evaluation |
-| Misinterpretation of probabilistic outputs | Medium | Decision-support framing |
+| Misinterpretation of probabilistic outputs | Medium | Decision-support advisory |
 

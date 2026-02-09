@@ -7,7 +7,7 @@ SpecLens-PML implements an educational governance strategy focused on:
 - Candidate vs champion separation
 - Metric-driven promotion
 - Policy-driven governance thresholds defined in configuration (`config.yaml`)
-- Controlled serving through a single deployed artifact
+- Controlled serving through a single deployed artifact (`best_model.pkl`)
 - Automated CI execution via containerized Jenkins pipeline
 - Feedback collection for continuous retraining
 - Reproducibility through reset and deterministic execution flow
@@ -18,10 +18,10 @@ The system does not include a full enterprise model registry: the promoted champ
 
 ## 2. Managed Artifacts
 
-The SpecLens-PML codebase is modular and fully versioned through Git:
+The SpecLens-PML codebase is modular and fully versioned:
 
 - Modular repository structure (`pipeline/`, `inference/`, `pml/`)  
-- Versioned through Git commits and tagged releases
+- Versioned through Git commits
 
 Training and held-out TEST datasets are generated as CSV artifacts during each pipeline execution:
 
@@ -65,13 +65,13 @@ The lifecycle enforces separation between:
 
 ---
 
-## 4. Champion/Challenger Promotion Policy
+## 4. Champion / Challenger Promotion Policy
 
 Promotion is implemented in `ct_trigger.py`:
 
 - Load candidate models  
 - Evaluate on held-out TEST dataset  
-- Compute Recall on the *RISKY* class  
+- Compute Recall on the RISKY class  
 - Promote the best candidate (`models/best_model.pkl`)
 
 This governance rule ensures:
@@ -128,7 +128,7 @@ Raw pools remain untouched, ensuring reproducible rebuilds.
 
 ---
 
-## 7. CI/CD and Automation
+## 7. CI and Automation
 
 SpecLens-PML integrates automation through:
 
@@ -142,34 +142,35 @@ SpecLens-PML integrates automation through:
 ## 8. Monitoring and Maintenance Plan
 
 Monitoring is implemented through governance-driven signals.
-Instead of relying on external observability stacks, the system reacts to:
+
+Instead of relying on external observability stacks (e.g., Prometheus, Grafana), the system reacts to:
 
 - Performance degradation (measured through recall on the held-out TEST dataset)
-- An increase of HIGH-risk unseen inputs (used to expand the feedback pool)
-- And drift indicators in specification patterns, i.e., shifts in the distribution
-of extracted contract features compared to the training data, by blocking champion promotion and collecting feedback examples for subsequent retraining:
+- An increase of HIGH-risk predictions on unseen code submitted by developers (these cases may also be collected as feedback examples to improve future training cycles)
+- Potential drift in specification patterns can also be monitored.
+ In case of suspected drift (i.e., incoming code / specification patterns differing in number and complexity from the training distribution), SpecLens-PML does not implement a dedicate d drift detection service, but addresses the issue through its feedback-driven retraining mechanism: new representative examples can be collected and the pipeline re-executed to real ign the model with evolving specification structures:
 
 | Signal | Response Action |
 |--------|----------------|
-| Recall drop on TEST | Block champion promotion |
+| Recall drop on TEST | The current champion remains active and is not replaced |
 | Surge of HIGH-risk unseen cases | Expand feedback pool |
-| Drift suspicion in specification patterns | Trigger retraining cycle |
+| Drift suspicion | Trigger retraining cycle |
 
 The feedback mechanism provides a lightweight proxy for production monitoring in an educational setting.
 
 ---
 
-## 9. Event Log Schema (Process Mining Ready)
+## 9. Event Log Schema
 
-To support traceability, the workflow can be represented as an event log:
+To support future traceability and potential process mining extensions, the workflow could be represented as an event log:
 
 | timestamp | case_id | activity | artifact | outcome |
 |----------|---------|----------|----------|---------|
-| t1 | model_v1 | train | datasets_train.csv | success |
-| t2 | model_v1 | evaluate | datasets_test.csv | recall=0.72 |
-| t3 | model_v1 | promote | best_model.pkl | deployed |
+| t1 | demo_run | train | datasets_train.csv | success |
+| t2 | demo_run | evaluate | datasets_test.csv | recall=<measured_value> |
+| t3 | demo_run | promote | best_model.pkl | deployed |
 
-This schema enables future extensions with process mining and compliance auditing.
+---
 
 ## 10. Example Operational Use Case
 
