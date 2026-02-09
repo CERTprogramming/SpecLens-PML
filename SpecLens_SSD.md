@@ -45,7 +45,7 @@ The system operates between traditional testing and full formal verification:
 
 The SpecLens-PML prototype focuses on the following safety-oriented and operational KPIs:
 
-- Candidate models are compared on the held-out TEST set and only the one achieving the highest RISKY-class above a minimum threshold (configured in `config.yaml`) is promoted as the serving champion (`best_model.pkl`)
+- Candidate models are compared on the held-out TEST set and the one achieving the highest recall on the RISKY class (above a minimum threshold in config.yaml) is promoted as the serving champion (best_model.pkl)
 - Interactive inference remains fast on single files, whereas training and retraining costs scale with dataset growth
 
 Given the safety-oriented domain, SpecLens prioritizes interpretable models (logistic regression, random forest) and a decision-support advisory, rather than black-box predictions.
@@ -66,6 +66,7 @@ Generated datasets:
 - `datasets_train.csv`  
 - `datasets_test.csv`  
 
+During dataset generation, code is parsed, contracts are extracted, and structural features are normalized into a consistent tabular schema shared across training and inference.
 These datasets are automatically produced during execution and are not tracked as static repository artifacts.
 
 ---
@@ -152,6 +153,8 @@ flowchart TD
 ```
 
 This diagram represents the full implemented workflow: feedback examples are collected and re-injected into TRAIN at the next run.
+The promoted champion (`best_model.pkl`) is the single deployed serving artifact, used both in CLI inference (`predict.py`) and in the Streamlit interface (`app.py`).
+Lightweight monitoring is achieved through governance signals (recall drops or HIGH-risk surges), triggering feedback collection and retraining.
 
 ---
 

@@ -137,6 +137,8 @@ SpecLens-PML integrates automation through:
 - Jenkins integration for CI execution of the full workflow (executed inside a Docker container, ensuring that the full pipeline can be replicated in an isolated environment outside the developer’s local machine)
 - Streamlit GUI (`app.py`) as an operational control interface  
 
+Full experiment tracking (e.g., Neptune.ai, MLflow) is not integrated in this prototype, but represents a natural extension for richer metric dashboards and lineage tracking.
+
 ---
 
 ## 8. Monitoring and Maintenance Plan
@@ -148,7 +150,9 @@ Instead of relying on external observability stacks (e.g., Prometheus, Grafana),
 - Performance degradation (measured through recall on the held-out TEST dataset)
 - An increase of HIGH-risk predictions on unseen code submitted by developers (these cases may also be collected as feedback examples to improve future training cycles)
 - Potential drift in specification patterns can also be monitored.
- In case of suspected drift (i.e., incoming code / specification patterns differing in number and complexity from the training distribution), SpecLens-PML does not implement a dedicate d drift detection service, but addresses the issue through its feedback-driven retraining mechanism: new representative examples can be collected and the pipeline re-executed to real ign the model with evolving specification structures:
+  In case of suspected drift (i.e., incoming code / specification patterns differing in number and complexity from the training distribution), 
+  SpecLens-PML does not implement a dedicated drift detection service, but addresses the issue through its feedback-driven retraining mechanism: 
+  new representative examples can be collected and the pipeline re-executed to real ign the model with evolving specification structures:
 
 | Signal | Response Action |
 |--------|----------------|

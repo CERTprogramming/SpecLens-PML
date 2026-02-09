@@ -191,32 +191,31 @@ without relying on manual `sys.path` modifications.
 
 ## Documentation (Sphinx)
 
-SpecLens-PML can generate developer-oriented API documentation using **Sphinx**,
+SpecLens-PML can generate developer-oriented API documentation using Sphinx,
 the standard documentation tool in the Python ecosystem.
-Sphinx is already included in the project dependencies (`requirements.txt`).
-Unlike Javadoc/JSDoc, Sphinx requires a small configuration step to enable
-automatic extraction of documentation from Python modules (via `autodoc`).
 
-To initialize and build the documentation, run:
+Sphinx is included in the project dependencies and can be installed automatically
+when setting up the repository with:
 
 ```bash
-# Only required the first time
-sphinx-quickstart docs
-
-# Generate API docs automatically from source code
-sphinx-apidoc -o docs/source pml pipeline inference
+pip install -e .
 ```
 
-Sphinx only documents importable Python packages. To support automatic module
-documentation, ensure that `docs/source/conf.py` can import the SpecLens-PML modules:
+Unlike Javadoc / JSDoc, Sphinx requires a small configuration step to enable
+automatic extraction of documentation from Python modules (via `autodoc`).
+The documentation folder `docs/` is already initialized in this repository.
 
-```python
-import os
-import sys
-sys.path.insert(0, os.path.abspath("../.."))
-```
+A lightweight API reference is provided through the file:
 
-Enable `autodoc` (and related extensions):
+- `docs/source/api.rst`
+
+This file documents the core modules of SpecLens-PML, including:
+
+- `pml.parser` (contract extraction)
+- `pipeline.build_dataset` and `pipeline.train` (training workflow)
+- `inference.predict` (serving and risk classification)
+
+Sphinx is configured in `docs/source/conf.py`, with the following extensions enabled:
 
 ```python
 extensions = [
@@ -226,17 +225,7 @@ extensions = [
 ]
 ```
 
-Ensure `docs/source/index.rst` contains `modules` under the `toctree` directive:
-
-```rst
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
-
-   modules
-```
-
-Build the HTML documentation:
+To build the HTML documentation locally, run:
 
 ```bash
 cd docs
@@ -244,7 +233,11 @@ make clean
 make html
 ```
 
-The generated documentation will be available at `docs/build/html/index.html`.
+The generated documentation will be available at:
+
+```
+docs/build/html/index.html
+```
 
 ---
 

@@ -177,3 +177,40 @@ A sprint is considered complete when:
 - Feedback examples are correctly collected in `raw_feedback/`
 - Deliverables are reproducible and documented
 
+---
+
+## 10. Resources & Infrastructure
+
+SpecLens-PML is designed as an educational yet realistic MLOps prototype, and relies on a lightweight but complete execution infrastructure. Non-functional requirements emphasized in the project include reproducibility (reset + deterministic rebuilds), portability (containerized Jenkins execution) and traceability through explicit dataset and model artifacts.
+
+Development Environment:
+
+- Python 3.10+ virtual environment (`.venv`) 
+- Modular repository organization (`pml/`, `pipeline/`, `inference/`) 
+- Package-style installation to ensure clean imports:
+
+```bash
+pip install -e .
+```
+
+Execution and Reproducibility:
+
+- End-to-end reproducible runs through the CLI demo pipeline (`demo.py`)
+- Repository reset support (`reset.sh`) to clean artifacts and rebuild from raw pools
+
+CI Infrastructure:
+
+- Containerized Continuous Integration pipeline executed through Jenkins
+- The Jenkins setup replicates the full training and evaluation workflow in an isolated environment, ensuring portability beyond the developer machine
+
+Data and Model Artifacts:
+
+- Raw annotated pools tracked in Git (`raw_train/`, `raw_test/`, `raw_unseen/`)
+- Generated datasets stored as CSV artifacts (`datasets_train.csv`, `datasets_test.csv`)
+- Candidate and champion models stored as serialized artifacts (`.pkl`)
+
+Documentation Tooling:
+
+- Developer-oriented API documentation supported through Sphinx (`docs/`)
+- Manual API index provided via `api.rst` for the core modules
+
