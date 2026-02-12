@@ -1,7 +1,7 @@
 """
 Continuous Training Trigger for SpecLens-PML.
 
-This module implements a simple Champion/Challenger governance strategy:
+This module implements a simple Champion / Challenger governance strategy:
 
 - Multiple candidate models are trained (logistic, forest)
 - Each candidate is evaluated on the same held-out TEST dataset
@@ -26,19 +26,19 @@ import yaml
 # Paths and Configuration
 # ---------------------------------------------------------------------------
 
-# Directory containing all trained candidate and champion model artifacts.
+# Directory containing all trained candidate and champion model artifacts
 MODELS_DIR = Path("models")
 
-# Candidate model registry (baseline + challenger).
+# Candidate model registry (baseline + challenger)
 CANDIDATES = {
     "logistic": MODELS_DIR / "logistic.pkl",
     "forest": MODELS_DIR / "forest.pkl",
 }
 
-# Path where the promoted champion model is stored.
+# Path where the promoted champion model is stored
 BEST_MODEL_PATH = MODELS_DIR / "best_model.pkl"
 
-# Central configuration file defining MLOps governance rules.
+# Central configuration file defining MLOps governance rules
 CONFIG_PATH = Path("config.yaml")
 
 
@@ -93,10 +93,10 @@ def main(test_dataset: Path) -> None:
 
     cfg = load_config()
 
-    governance = cfg.get("continuous_training", {})
+    governance = cfg.get("mlops", {})
     min_recall = governance.get("min_recall_risky", 0.0)
 
-    print(f"Minimum Recall(RISKY) required for promotion: {min_recall:.3f}")
+    print(f"Minimum recall on the RISKY class required for promotion: {min_recall:.3f}")
 
     # -----------------------------------------------------------------------
     # Load TEST dataset (held-out evaluation set)
@@ -135,7 +135,7 @@ def main(test_dataset: Path) -> None:
 
         recall_risky = evaluate_model(model, X_test, y_test)
 
-        print(f"Recall (RISKY) for {name}: {recall_risky:.3f}")
+        print(f"Recall on the RISKY class for {name}: {recall_risky:.3f}")
 
         if recall_risky > best_recall:
             best_recall = recall_risky
@@ -152,7 +152,7 @@ def main(test_dataset: Path) -> None:
 
     print("\n=== Promotion Decision ===")
     print(f"Best candidate: {best_name}")
-    print(f"Best Recall (RISKY): {best_recall:.3f}")
+    print(f"Best recall on the RISKY class: {best_recall:.3f}")
 
     if best_recall < min_recall:
         print("\nPromotion blocked: minimum safety threshold not met.")

@@ -17,7 +17,7 @@ Each trained candidate model is saved separately under ``models/``:
     - models/forest.pkl
 
 Continuous Training later evaluates all candidates on the held-out TEST set
-and promotes the best-performing model based on **Recall on the RISKY class**.
+and promotes the best-performing model based on recall on the RISKY class.
 """
 
 from pathlib import Path
@@ -30,6 +30,7 @@ import argparse
 import joblib
 import pandas as pd
 import yaml
+
 
 # ------------------------------------------------------------
 # Configuration Loader
@@ -141,7 +142,7 @@ def evaluate_model(model, X_test, y_test):
     print(classification_report(y_test, y_pred))
 
     recall_risky = recall_score(y_test, y_pred, pos_label=1)
-    print(f"Recall (RISKY): {recall_risky:.3f}")
+    print(f"Recall on RISKY class: {recall_risky:.3f}")
 
     return recall_risky
 

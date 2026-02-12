@@ -1,7 +1,7 @@
 """
 SpecLens-PML Feature Extraction.
 
-This module defines the *single source of truth* for feature engineering.
+This module defines the "single source of truth" for feature engineering.
 
 Both dataset generation (build_dataset.py) and inference (predict.py)
 must rely on the exact same feature extraction logic to ensure that:

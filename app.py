@@ -9,7 +9,7 @@ This module provides a lightweight graphical frontend to:
 The Streamlit GUI is intentionally minimal:
 all MLOps logic remains implemented in the CLI scripts
 (e.g., demo.py, ct_trigger.py, inference/predict.py)
-and can also be executed in a containerized CI environment via Jenkins.
+which can be executed both manually and through automated CI runs (Jenkins).
 """
 
 from pathlib import Path

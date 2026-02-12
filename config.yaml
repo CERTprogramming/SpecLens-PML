@@ -61,19 +61,17 @@ risk_thresholds:
 
 mlops:
 
-  # Safety-oriented promotion metric:
-  # Champion is selected by maximizing Recall on the RISKY class
-  min_recall_risky: 0.60
+  # Champion is selected by maximizing recall on the RISKY class
+  min_recall_risky: 0.30
 
-  # Feedback-driven retraining trigger:
   # Retraining starts only if at least N unseen examples have been
   # collected into the feedback pool
   feedback_trigger_size: 2
 
-  # Retrain automatically if no champion model exists yet
+  # If no champion model is available yet (fresh repository or after reset)
+  # SpecLens-PML automatically retrains candidates and promotes an initial champion to enable serving
   retrain_if_no_champion: true
 
-  # Promotion policy:
   # A new candidate is promoted only if it improves over the current champion
   promote_only_if_better: true
 

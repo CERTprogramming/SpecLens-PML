@@ -46,9 +46,9 @@ class Counter:
 
 Supported annotations:
 
-- `@requires <expr>` -- preconditions  
-- `@ensures <expr>` -- postconditions  
-- `@invariant <expr>` -- class invariants
+- `@requires <expr>` (precondition)
+- `@ensures <expr>` (postcondition)
+- `@invariant <expr>` (class invariant)
 
 ---
 
@@ -312,7 +312,18 @@ This performs:
 
    - Loads candidate artifacts
    - Evaluates each candidate on the held-out TEST dataset
-   - Selects the champion by maximizing recall on the RISKY class, promoting the candidate model that detects the highest proportion of truly RISKY cases on the held-out TEST set.
+   - Selects the champion by maximizing recall on the RISKY class (i.e., the ability to detect as many truly risky functions as possible):
+
+     ```
+     Recall_RISKY = TP / (TP + FN)
+     ```
+
+     Where:
+
+     - TP = risky functions correctly identified (true positives)
+     - FN = risky functions missed by the model (false negatives)
+
+     Thus, the governance trigger promotes the candidate model that catches the highest proportion of real contract violations on the held-out TEST set.
    - Promotes the winner as the single serving artifact:
 
      ```

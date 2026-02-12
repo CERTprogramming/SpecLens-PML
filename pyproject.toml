@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "speclens-pml"
 version = "0.1.0"
-description = "Educational MLOps pipeline for probabilistic software correctness using PML contracts."
+description = "Data-driven Software Correctness with MLOps"
 authors = [
-    { name="SpecLens-PML Contributors" }
+    { name="Massimo Costantini" }
 ]
 readme = "README.md"
 requires-python = ">=3.9"

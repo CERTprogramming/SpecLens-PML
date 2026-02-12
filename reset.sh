@@ -7,14 +7,16 @@
 # from scratch (fresh MLOps pipeline execution).
 #
 # It removes:
+#
 # - Feedback examples collected from unseen runs
 # - Temporary training staging directory
 # - Generated datasets
 # - Trained model artifacts (candidates + champion)
 #
-# Raw datasets (train/test/unseen) are NOT touched.
+# Raw datasets (train / test / unseen) are not touched.
 #
 # Usage:
+#
 #   ./reset.sh
 #
 # ======================================================

@@ -249,7 +249,7 @@ pipeline {
         Governance decision step:
 
         - Evaluate candidates on TEST
-        - Select best model by Recall(RISKY)
+        - Select best model by recall on the RISKY class
         - Promote champion for serving
 
         Output:

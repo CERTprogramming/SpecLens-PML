@@ -13,7 +13,7 @@ Given a Python source file annotated with PML contracts, it:
 
     LOW / MEDIUM / HIGH
 
-This module represents the *serving* component of the pipeline.
+This module represents the serving component of the pipeline.
 """
 
 from pathlib import Path

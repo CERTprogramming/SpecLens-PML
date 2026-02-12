@@ -48,9 +48,9 @@ class Counter:
 
 Supported annotations:
 
-- `@requires <expr>` -- preconditions  
-- `@ensures <expr>` -- postconditions  
-- `@invariant <expr>` -- class invariants
+- `@requires <expr>` (precondition)
+- `@ensures <expr>` (postcondition)
+- `@invariant <expr>` (class invariant)
 
 ---
 
@@ -206,9 +206,9 @@ CI Infrastructure:
 
 Data and Model Artifacts:
 
-- Raw annotated pools tracked in Git (`raw_train/`, `raw_test/`, `raw_unseen/`)
+- Raw annotated example pools versioned in Git (`raw_train/`, `raw_test/`, `raw_unseen/`) for reproducibility
 - Generated datasets stored as CSV artifacts (`datasets_train.csv`, `datasets_test.csv`)
-- Candidate and champion models stored as serialized artifacts (`.pkl`)
+- Candidate (`logistic.pkl`, `forest.pkl`) and champion (`best_model.pkl`) models are stored as serialized artifacts in the `models/` directory.
 
 Documentation Tooling:
 

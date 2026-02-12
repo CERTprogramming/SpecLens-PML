@@ -5,7 +5,7 @@
 SpecLens-PML implements an educational governance strategy focused on:
 
 - Candidate vs champion separation
-- Metric-driven promotion
+- Metric-driven promotion (automatic champion selection based on recall on the RISKY class)
 - Policy-driven governance thresholds defined in configuration (`config.yaml`)
 - Controlled serving through a single deployed artifact (`best_model.pkl`)
 - Automated CI execution via containerized Jenkins pipeline
@@ -149,7 +149,7 @@ Monitoring is implemented through governance-driven signals.
 Instead of relying on external observability stacks (e.g., Prometheus, Grafana), the system reacts to:
 
 - Performance degradation (measured through recall on the held-out TEST dataset)
-- An increase of HIGH-risk predictions on unseen code submitted by developers (these cases may also be collected as feedback examples to improve future training cycles)
+- An increase of HIGH-risk predictions on unseen code submitted by developers (these cases are collected as feedback examples to improve future training cycles)
 - Potential drift in specification patterns can also be monitored.
   In case of suspected drift (i.e., incoming code / specification patterns differing in number and complexity from the training distribution), 
   SpecLens-PML does not implement a dedicated drift detection service, but addresses the issue through its feedback-driven retraining mechanism: 

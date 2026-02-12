@@ -6,11 +6,11 @@ it implements the dataset generation stage.
 
 Annotated Python programs are treated as structured training data:
 
-- Functions and methods are parsed from source files.
-- PML contracts (@requires / @ensures / @invariant) are extracted.
-- Structural and semantic features are computed.
-- Functions are dynamically executed on generated inputs.
-- Contract violations or runtime failures are labeled as RISKY.
+- Functions and methods are parsed from source files
+- PML contracts (@requires / @ensures / @invariant) are extracted
+- Structural and semantic features are computed
+- Functions are dynamically executed on generated inputs
+- Contract violations or runtime failures are labeled as RISKY
 
 The output is a supervised dataset ready for ML training.
 """
@@ -26,7 +26,7 @@ import sys
 
 
 # ---------------------------------------------------------------------------
-# Module Loading Helper
+# Helper: Module Loading
 # ---------------------------------------------------------------------------
 
 def load_module(path: Path):
@@ -50,7 +50,7 @@ def load_module(path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Contract Evaluation Helper
+# Helper: Contract Evaluation
 # ---------------------------------------------------------------------------
 
 def eval_expr(expr: str, env: dict) -> bool:

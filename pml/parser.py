@@ -17,7 +17,7 @@ Contracts may appear:
 1. Immediately above a function or method definition
 2. Anywhere inside the function body (after docstrings, comments, or code)
 
-This design makes the parser robust across all SpecLens demo examples.
+This design makes the parser robust across all demo examples.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict
 
 import ast
+
 
 # ---------------------------------------------------------------------------
 # Contract Extraction Helpers
@@ -77,7 +78,7 @@ def _comment_block_above(lines: List[str], lineno: int) -> List[str]:
     """
     Collect contiguous comment lines immediately above a definition.
 
-    This captures contracts written directly before a function/class header.
+    This captures contracts written directly before a function / class header.
 
     Parameters
     ----------
@@ -139,14 +140,15 @@ def _all_comments_inside_function(lines: List[str], node: ast.FunctionDef) -> Li
 
 
 # ---------------------------------------------------------------------------
-# LOC Helper
+# Helper: Lines of Code (LOC)
 # ---------------------------------------------------------------------------
 
 def _node_loc(node: ast.AST) -> int:
     """
     Approximate the number of lines of code (LOC) of an AST node.
 
-    Uses end_lineno when available (Python 3.8+).
+    Uses the AST attribute end_lineno (available in Python ≥ 3.8)
+    to estimate the full size of the function in lines of code.
 
     Returns
     -------
@@ -169,7 +171,7 @@ def _node_loc(node: ast.AST) -> int:
 
 def parse_file(path: Path) -> List[Dict]:
     """
-    Parse a Python source file and extract all annotated functions/methods.
+    Parse a Python source file and extract all annotated functions / methods.
 
     Each extracted entry includes:
 

@@ -126,10 +126,10 @@ def main() -> None:
     test_csv = root / "data" / "datasets_test.csv"
 
     # -----------------------------------------------------------------------
-    # Step 1: Prepare TRAIN pool (with feedback)
+    # Step 1: Prepare TRAIN pool (with feedback, if available)
     # -----------------------------------------------------------------------
 
-    print("\n=== Step 1: Preparing TRAIN dataset (with feedback) ===")
+    print("\n=== Step 1: Preparing TRAIN dataset (with feedback, if available) ===")
 
     prepare_training_pool(train_dir, feedback_dir, tmp_train_dir)
 

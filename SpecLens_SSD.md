@@ -11,9 +11,9 @@ and builds an end-to-end MLOps pipeline with feedback-driven retraining.
 
 The system analyzes Python functions annotated with PML contracts:
 
-- `@requires` (preconditions)  
-- `@ensures` (postconditions)  
-- `@invariant` (class invariants)
+- `@requires` (precondition)  
+- `@ensures` (postcondition)  
+- `@invariant` (class invariant)
 
 The ML task is formulated as a binary classification problem (`SAFE / RISKY`).
 Operational risk levels (`LOW / MEDIUM / HIGH`) are derived as a post-processing layer
@@ -28,16 +28,16 @@ SpecLens-PML provides probabilistic decision support rather than formal correctn
 
 ## 2. System Context and Stakeholders
 
+The system operates between traditional testing and full formal verification:
+
+- Like testing, it relies on dynamic execution
+- Like specification-based approaches, it treats contracts as semantic signals  
+
 Primary stakeholders include:
 
 - Software engineers writing annotated Python code  
 - Quality Assurance (QA) and verification teams reviewing correctness risks  
 - Developers experimenting with specification-driven MLOps automation  
-
-The system operates between traditional testing and full formal verification:
-
-- Like testing, it relies on dynamic execution
-- Like specification-based approaches, it treats contracts as semantic signals  
 
 ---
 
@@ -76,9 +76,11 @@ These datasets are automatically produced during execution and are not tracked a
 Labels are produced through dynamic execution and contract checking:
 
 - Functions are executed on generated inputs  
-- Pre / postconditions are validated  
+- Preconditions (`@requires`), postconditions (`@ensures`) and invariants (`@invariant`) are validated during execution.
 - Contract violations detected at runtime (`RISKY`)
 - Otherwise (`SAFE`)
+
+During inference, the predicted RISKY probability is mapped into operational levels (`LOW / MEDIUM / HIGH`).
 
 ---
 
@@ -88,9 +90,9 @@ Feature extraction is centralized in `pipeline/features.py` and shared across tr
 
 Features include:
 
-- Number of parameters  
+- Number of function parameters
 - Number of contracts (`requires`, `ensures`, `invariant`)  
-- Additional structural features extracted from the code and its contracts (e.g., number of preconditions / postconditions)
+- Additional structural features extracted from the code and its contracts (e.g., number of preconditions / postconditions / invariants)
 - Lines of code (LOC) 
 
 ---
