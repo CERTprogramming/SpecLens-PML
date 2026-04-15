@@ -10,36 +10,16 @@
 # The goal is not correctness of the implementation, but showcasing
 # how contract violations can be detected and scored.
 
-import math
-
-def div(a, b):
+def minimum_value(values):
     # Intentionally incorrect implementation:
-    # uses integer (floor) division,
+    # returns the maximum value instead of the minimum one,
     # which violates the postcondition.
-    # @requires b != 0
-    # @ensures result * b == a
-    return a // b
-
-def sqrt(x):
-    # SAFE example.
-    # @requires x >= 0
-    # @ensures result >= 0
-    return math.sqrt(x)
-
-def mean(values):
-    # SAFE example.
     # @requires len(values) > 0
-    # @ensures result >= min(values)
-    # @ensures result <= max(values)
-    return sum(values) / len(values)
+    # @ensures result in values
+    # @ensures all(result <= v for v in values)
+    return max(values)
 
-def clamp(x, lo, hi):
+def is_sorted_nondecreasing(values):
     # SAFE example.
-    # @requires lo <= hi
-    # @ensures result >= lo
-    # @ensures result <= hi
-    if x < lo:
-        return lo
-    if x > hi:
-        return hi
-    return x
+    # @ensures result == all(values[i] <= values[i + 1] for i in range(len(values) - 1))
+    return all(values[i] <= values[i + 1] for i in range(len(values) - 1))

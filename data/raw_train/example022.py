@@ -10,36 +10,14 @@
 # The goal is not correctness of the implementation, but showcasing
 # how contract violations can be detected and scored.
 
-import math
-
-def div(a, b):
-    # Intentionally incorrect implementation:
-    # uses integer (floor) division,
-    # which violates the postcondition.
-    # @requires b != 0
-    # @ensures result * b == a
-    return a // b
-
-def sqrt(x):
-    # SAFE example.
-    # @requires x >= 0
-    # @ensures result >= 0
-    return math.sqrt(x)
-
-def mean(values):
+def safe_average(values):
     # SAFE example.
     # @requires len(values) > 0
-    # @ensures result >= min(values)
+    # @ensures min(values) <= result
     # @ensures result <= max(values)
     return sum(values) / len(values)
 
-def clamp(x, lo, hi):
+def has_average(values):
     # SAFE example.
-    # @requires lo <= hi
-    # @ensures result >= lo
-    # @ensures result <= hi
-    if x < lo:
-        return lo
-    if x > hi:
-        return hi
-    return x
+    # @ensures result == (len(values) > 0)
+    return len(values) > 0

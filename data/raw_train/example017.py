@@ -10,36 +10,16 @@
 # The goal is not correctness of the implementation, but showcasing
 # how contract violations can be detected and scored.
 
-import math
-
-def div(a, b):
+def get_first_item(items):
     # Intentionally incorrect implementation:
-    # uses integer (floor) division,
+    # returns the second item instead of the first one,
     # which violates the postcondition.
-    # @requires b != 0
-    # @ensures result * b == a
-    return a // b
+    # @requires len(items) > 0
+    # @ensures result == items[0]
+    return items[1]
 
-def sqrt(x):
+def starts_with_first(items, value):
     # SAFE example.
-    # @requires x >= 0
-    # @ensures result >= 0
-    return math.sqrt(x)
-
-def mean(values):
-    # SAFE example.
-    # @requires len(values) > 0
-    # @ensures result >= min(values)
-    # @ensures result <= max(values)
-    return sum(values) / len(values)
-
-def clamp(x, lo, hi):
-    # SAFE example.
-    # @requires lo <= hi
-    # @ensures result >= lo
-    # @ensures result <= hi
-    if x < lo:
-        return lo
-    if x > hi:
-        return hi
-    return x
+    # @requires len(items) > 0
+    # @ensures result == (items[0] == value)
+    return items[0] == value

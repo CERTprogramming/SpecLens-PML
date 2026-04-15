@@ -10,36 +10,15 @@
 # The goal is not correctness of the implementation, but showcasing
 # how contract violations can be detected and scored.
 
-import math
-
-def div(a, b):
+def first_character(text):
     # Intentionally incorrect implementation:
-    # uses integer (floor) division,
+    # returns the last character instead of the first one,
     # which violates the postcondition.
-    # @requires b != 0
-    # @ensures result * b == a
-    return a // b
+    # @requires len(text) > 0
+    # @ensures result == text[0]
+    return text[-1]
 
-def sqrt(x):
+def is_empty(text):
     # SAFE example.
-    # @requires x >= 0
-    # @ensures result >= 0
-    return math.sqrt(x)
-
-def mean(values):
-    # SAFE example.
-    # @requires len(values) > 0
-    # @ensures result >= min(values)
-    # @ensures result <= max(values)
-    return sum(values) / len(values)
-
-def clamp(x, lo, hi):
-    # SAFE example.
-    # @requires lo <= hi
-    # @ensures result >= lo
-    # @ensures result <= hi
-    if x < lo:
-        return lo
-    if x > hi:
-        return hi
-    return x
+    # @ensures result == (len(text) == 0)
+    return len(text) == 0
