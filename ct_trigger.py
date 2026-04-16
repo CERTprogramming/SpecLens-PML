@@ -105,15 +105,16 @@ def main(test_dataset: Path) -> None:
     if not test_dataset.exists():
         raise FileNotFoundError(f"Test dataset not found: {test_dataset}")
 
-    df = pd.read_csv(test_dataset)
+    df_test = pd.read_csv(test_dataset)
 
+    metadata_cols = {"name", "class", "source_file", "file", "function", "label"}
     feature_cols = [
-        c for c in df.columns
-        if c not in ("name", "class", "source_file", "label")
+        c for c in df_test.columns
+        if c not in metadata_cols and pd.api.types.is_numeric_dtype(df_test[c])
     ]
 
-    X_test = df[feature_cols]
-    y_test = df["label"]
+    X_test = df_test[feature_cols]
+    y_test = df_test["label"]
 
     best_name = None
     best_recall = -1.0

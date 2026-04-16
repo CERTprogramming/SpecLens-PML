@@ -78,17 +78,14 @@ def prepare_training_pool(
     tmp_dir : Path
         Temporary staging directory created for dataset generation.
     """
-    # Reset staging directory
     if tmp_dir.exists():
         shutil.rmtree(tmp_dir)
 
     tmp_dir.mkdir(parents=True)
 
-    # Copy base training examples
     for f in train_dir.glob("*.py"):
         shutil.copy(f, tmp_dir / f.name)
 
-    # Copy feedback examples if available (avoid duplicates)
     if feedback_dir.exists():
         for f in feedback_dir.glob("*.py"):
             target = tmp_dir / f.name
@@ -121,9 +118,12 @@ def main() -> None:
     # Temporary staging directory (regenerated every run)
     tmp_train_dir = root / "data" / "_tmp_train"
 
-    # Dataset outputs
-    train_csv = root / "data" / "datasets_train.csv"
-    test_csv = root / "data" / "datasets_test.csv"
+    # Processed dataset outputs
+    processed_dir = root / "data" / "processed"
+    processed_dir.mkdir(parents=True, exist_ok=True)
+
+    train_csv = processed_dir / "datasets_train.csv"
+    test_csv = processed_dir / "datasets_test.csv"
 
     # -----------------------------------------------------------------------
     # Step 1: Prepare TRAIN pool (with feedback, if available)
@@ -195,8 +195,10 @@ def main() -> None:
 
     feedback_dir.mkdir(exist_ok=True)
 
+    # Convention suggestion:
+    # raw_unseen examples should use a dedicated numbering range
+    # such as example201.py, example202.py, ...
     for py_file in sorted(unseen_dir.glob("*.py")):
-
         print(f"\n--- Analyzing {py_file.name} ---")
 
         result = subprocess.run(
@@ -211,9 +213,7 @@ def main() -> None:
 
         print(result.stdout)
 
-        # Feedback rule: collect example if HIGH risk appears
         if "[HIGH]" in result.stdout:
-
             target = feedback_dir / py_file.name
 
             if not target.exists():
@@ -224,6 +224,7 @@ def main() -> None:
                 print("High-risk example already present in feedback pool.")
 
     print("\n=== Demo completed successfully ===")
+    print(f"Processed datasets saved in: {processed_dir}")
     print(f"Feedback pool updated in: {feedback_dir}")
 
 
@@ -233,4 +234,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -180,10 +180,10 @@ def train(dataset_path: Path, model_type: str):
 
     df = pd.read_csv(dataset_path)
 
-    # Features = all numeric columns except metadata + label
+    metadata_cols = {"name", "class", "source_file", "file", "function", "label"}
     feature_cols = [
         c for c in df.columns
-        if c not in ("name", "class", "source_file", "label")
+        if c not in metadata_cols and pd.api.types.is_numeric_dtype(df[c])
     ]
 
     X = df[feature_cols]

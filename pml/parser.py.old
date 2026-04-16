@@ -12,9 +12,6 @@ Contracts are expressed as Python comments:
     # @ensures   <expr>
     # @invariant <expr>
 
-The expression language also supports ``old(...)`` inside postconditions
-to refer to values captured in the pre-state of the current function call.
-
 Contracts may appear:
 
 1. Immediately above a function or method definition
@@ -99,9 +96,11 @@ def _comment_block_above(lines: List[str], lineno: int) -> List[str]:
     i = lineno - 2
     block: List[str] = []
 
+    # Skip blank lines immediately above
     while i >= 0 and lines[i].strip() == "":
         i -= 1
 
+    # Collect comment lines
     while i >= 0 and lines[i].lstrip().startswith("#"):
         block.append(lines[i])
         i -= 1
@@ -109,14 +108,13 @@ def _comment_block_above(lines: List[str], lineno: int) -> List[str]:
     block.reverse()
     return block
 
-
 # ---------------------------------------------------------------------------
 # In-Function Comment Scanner
 # ---------------------------------------------------------------------------
 
 def _all_comments_inside_function(lines: List[str], node: ast.FunctionDef) -> List[str]:
     """
-    Collect all comment lines inside a function body.
+    Collect ALL comment lines inside a function body.
 
     SpecLens examples may place contracts after docstrings or executable code,
     so scanning the full body is the most robust strategy.
@@ -203,9 +201,18 @@ def parse_file(path: Path) -> List[Dict]:
 
     results: List[Dict] = []
 
+    # -----------------------------------------------------------------------
+    # Traverse top-level AST nodes
+    # -----------------------------------------------------------------------
+
     for node in tree.body:
 
+        # -------------------------------------------------------------------
+        # Top-level functions
+        # -------------------------------------------------------------------
+
         if isinstance(node, ast.FunctionDef):
+
             above = _comment_block_above(lines, node.lineno)
             inside = _all_comments_inside_function(lines, node)
 
@@ -223,7 +230,13 @@ def parse_file(path: Path) -> List[Dict]:
                 "n_loc": _node_loc(node),
             })
 
+        # -------------------------------------------------------------------
+        # Classes and methods
+        # -------------------------------------------------------------------
+
         elif isinstance(node, ast.ClassDef):
+
+            # Extract class-level invariants
             above_class = _comment_block_above(lines, node.lineno)
             _, _, class_invs = _extract_contracts(above_class)
 
@@ -249,3 +262,4 @@ def parse_file(path: Path) -> List[Dict]:
                 })
 
     return results
+
