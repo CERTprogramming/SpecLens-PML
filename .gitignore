@@ -100,3 +100,20 @@ docs/build/
 *.key
 *.pem
 
+
+
+# Python / virtualenv
+.venv/
+__pycache__/
+*.pyc
+
+# Runtime generated datasets
+data/processed/*.csv
+data/_tmp_train/
+
+# Trained model artifacts
+models/*.pkl
+
+# Optional generated docs/build artifacts
+docs/build/
+
