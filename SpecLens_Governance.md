@@ -5,51 +5,70 @@
 SpecLens-PML implements an educational governance strategy focused on:
 
 - Candidate vs champion separation
-- Metric-driven promotion (automatic champion selection based on recall on the RISKY class)
+- Metric-driven promotion based on recall on the RISKY class
 - Policy-driven governance thresholds defined in configuration (`config.yaml`)
 - Controlled serving through a single deployed artifact (`best_model.pkl`)
-- Automated CI execution via containerized Jenkins pipeline
+- Automated CI execution via a containerized Jenkins pipeline
 - Operational access through a minimal Streamlit GUI (`app.py`) for interactive inference and demos
 - Feedback collection for continuous retraining
 - Reproducibility through reset and deterministic execution flow
+- Separation between raw data, generated datasets, and generated model artifacts
+- Preparation for future structural explainability through DPG-ready training context
 
-The system does not include a full enterprise model registry: the promoted champion artifact is updated at each evaluation cycle.
+The system does not include a full enterprise model registry. The promoted
+champion artifact is updated at each evaluation cycle.
 
 ---
 
 ## 2. Managed Artifacts
 
-The SpecLens-PML codebase is modular and fully versioned:
+The SpecLens-PML codebase is modular and versioned through Git:
 
-- Modular repository structure (`pipeline/`, `inference/`, `pml/`)  
-- Versioned through Git commits
+- `pipeline/`
+- `inference/`
+- `pml/`
+- `data/raw_train/`
+- `data/raw_test/`
+- `data/raw_unseen/`
+- documentation files
 
-Training and held-out TEST datasets are generated as CSV artifacts during each pipeline execution:
+Training and held-out TEST datasets are generated as CSV artifacts during each
+pipeline execution:
 
-  - `data/datasets_train.csv`
-  - `data/datasets_test.csv`
+- `data/processed/datasets_train.csv`
+- `data/processed/datasets_test.csv`
 
-Raw pools remain immutable:
+Raw pools remain versioned and stable:
 
-- `raw_train/`, `raw_test/`, `raw_unseen/`
+- `data/raw_train/`
+- `data/raw_test/`
+- `data/raw_unseen/`
 
-Feedback pool evolves over time:
+The feedback pool evolves over time:
 
-- `raw_feedback/`
+- `data/raw_feedback/`
 
-The training stage produces multiple candidate model artifacts, while governance promotes a single champion model used for operational serving:
+The training stage produces multiple candidate model artifacts, while governance
+promotes a single champion model used for operational serving:
 
 | Type | Artifact | Role |
 |------|----------|------|
-| Candidate | `logistic.pkl` | Baseline model |
-| Candidate | `forest.pkl` | Challenger model |
-| Champion | `best_model.pkl` | Single serving model |
+| Candidate | `models/logistic.pkl` | Baseline model |
+| Candidate | `models/forest.pkl` | Challenger model and tree-based model for future DPG analysis |
+| Champion | `models/best_model.pkl` | Single serving model |
+| Context | `models/logistic_training_context.pkl` | Feature names, training matrix, labels |
+| Context | `models/forest_training_context.pkl` | DPG-ready context for tree-based explanation experiments |
+
+Generated datasets and model artifacts are runtime outputs and should normally
+be ignored by Git.
 
 ---
 
 ## 3. Model Lifecycle Governance
 
-The following state diagram summarizes the governance lifecycle of SpecLens-PML models, from initial training to evaluation, champion deployment and feedback-driven retraining:
+The following state diagram summarizes the governance lifecycle of SpecLens-PML
+models, from initial training to evaluation, champion deployment, and
+feedback-driven retraining:
 
 ```mermaid
 stateDiagram-v2
@@ -61,25 +80,34 @@ stateDiagram-v2
 
 The lifecycle enforces separation between:
 
-- Training artifacts (candidates)  
-- Production artifact (champion)  
+- Training artifacts, represented by candidate models
+- The deployed serving artifact, represented by the champion model
+- Raw data pools and generated datasets
+- Operational inference and future feedback collection
 
 ---
 
 ## 4. Champion / Challenger Promotion Policy
 
-Promotion is implemented in `ct_trigger.py`:
+Promotion is implemented in `ct_trigger.py`.
 
-- Load candidate models  
-- Evaluate on held-out TEST dataset  
-- Compute recall on the RISKY class  
-- Promote the best candidate (`models/best_model.pkl`)
+The trigger performs the following steps:
+
+- Load candidate models
+- Evaluate each candidate on the held-out TEST dataset
+- Compute recall on the RISKY class
+- Promote the candidate with the best RISKY-class recall as `models/best_model.pkl`
 
 This governance rule ensures:
 
-- Controlled deployment  
-- Safety-oriented selection  
-- Explicit separation between TRAIN and TEST  
+- Controlled deployment
+- Safety-oriented selection
+- Explicit separation between TRAIN and TEST
+- A single active serving artifact
+
+The Random Forest candidate may also be used for structural explainability
+experiments through Decision Predicate Graphs, even when the promoted operational
+champion is a different model according to the governance metric.
 
 ---
 
@@ -95,10 +123,12 @@ If a function is classified as HIGH risk, the corresponding file is copied into:
 
 The training pool evolves iteratively:
 
-- The next training set is built by merging the original raw training pool with the accumulated feedback examples
+- The next training set is built by merging the original raw training pool with accumulated feedback examples
 - The feedback pool grows by adding unseen inputs classified as HIGH risk
 
-The diagram below illustrates how high-risk unseen inputs are collected into the feedback pool and reinjected into the training dataset in the next continuous learning cycle:
+The diagram below illustrates how high-risk unseen inputs are collected into the
+feedback pool and reinjected into the training dataset in the next continuous
+learning cycle:
 
 ```mermaid
 flowchart LR
@@ -122,8 +152,8 @@ Reset removes:
 
 - Feedback examples collected in `raw_feedback/`
 - Temporary training staging directory (`data/_tmp_train/`)
-- Generated TRAIN / TEST datasets (`datasets_train.csv`, `datasets_test.csv`)
-- Trained candidate and champion model artifacts (`logistic.pkl`, `forest.pkl`, `best_model.pkl`)
+- Generated TRAIN / TEST datasets under `data/processed/`
+- Trained candidate and champion model artifacts under `models/`
 
 Raw pools remain untouched, ensuring reproducible rebuilds.
 
@@ -133,12 +163,18 @@ Raw pools remain untouched, ensuring reproducible rebuilds.
 
 SpecLens-PML integrates automation through:
 
-- `demo.py` for end-to-end continuous training runs  
-- `ct_trigger.py` for automated governance promotion  
-- Jenkins integration for CI execution of the full workflow (executed inside a Docker container, ensuring that the full pipeline can be replicated in an isolated environment outside the developer’s local machine)
-- Streamlit GUI (`app.py`) as an operational control interface  
+- `demo.py` for end-to-end continuous training runs
+- `ct_trigger.py` for automated governance promotion
+- Jenkins integration for CI execution of the full workflow
+- Streamlit GUI (`app.py`) as an operational control interface
 
-Full experiment tracking (e.g., Neptune.ai, MLflow) is not integrated in this prototype, but represents a natural extension for richer metric dashboards and lineage tracking.
+The Jenkins workflow is executed inside a Docker container, ensuring that the
+full pipeline can be replicated in an isolated environment outside the
+developer's local machine.
+
+Full experiment tracking, for example Neptune.ai or MLflow, is not integrated in
+this prototype, but represents a natural extension for richer metric dashboards,
+lineage tracking, and collaborative governance.
 
 ---
 
@@ -146,34 +182,41 @@ Full experiment tracking (e.g., Neptune.ai, MLflow) is not integrated in this pr
 
 Monitoring is implemented through governance-driven signals.
 
-Instead of relying on external observability stacks (e.g., Prometheus, Grafana), the system reacts to:
+Instead of relying on external observability stacks, the system reacts to:
 
-- Performance degradation (measured through recall on the held-out TEST dataset)
-- An increase of HIGH-risk predictions on unseen code submitted by developers (these cases are collected as feedback examples to improve future training cycles)
-- Potential drift in specification patterns can also be monitored.
-  In case of suspected drift (i.e., incoming code / specification patterns differing in number and complexity from the training distribution), 
-  SpecLens-PML does not implement a dedicated drift detection service, but addresses the issue through its feedback-driven retraining mechanism: 
-  new representative examples can be collected and the pipeline re-executed to realign the model with evolving specification structures:
+- Performance degradation, measured through recall on the held-out TEST dataset
+- An increase of HIGH-risk predictions on unseen code submitted by developers
+- Potential drift in coding or specification patterns
+
+In case of suspected drift, SpecLens-PML does not implement a dedicated drift
+detection service. Instead, the issue is addressed through its feedback-driven
+retraining mechanism: new representative examples can be collected and the
+pipeline re-executed to realign the model with evolving specification structures.
 
 | Signal | Response Action |
 |--------|----------------|
 | Recall drop on TEST | The current champion remains active and is not replaced |
 | Surge of HIGH-risk unseen cases | Expand feedback pool |
 | Drift suspicion | Trigger retraining cycle |
+| New contract patterns | Extend raw examples and retrain |
+| Explanation mismatch | Inspect feature schema and future DPG explanation layer |
 
-The feedback mechanism provides a lightweight proxy for production monitoring in an educational setting.
+The feedback mechanism provides a lightweight proxy for production monitoring in
+an educational setting.
 
 ---
 
 ## 9. Event Log Schema
 
-To support future traceability and potential process mining extensions, the workflow could be represented as an event log:
+To support future traceability and potential process mining extensions, the
+workflow could be represented as an event log:
 
 | timestamp | case_id | activity | artifact | outcome |
 |----------|---------|----------|----------|---------|
 | t1 | demo_run | train | datasets_train.csv | success |
 | t2 | demo_run | evaluate | datasets_test.csv | recall=<measured_value> |
 | t3 | demo_run | promote | best_model.pkl | deployed |
+| t4 | demo_run | explain | forest_training_context.pkl | DPG-ready |
 
 ---
 
@@ -181,10 +224,30 @@ To support future traceability and potential process mining extensions, the work
 
 A typical end-to-end interaction scenario is:
 
-- A developer submits Python code annotated with PML contracts  
-- The system performs inference using the deployed champion model  
-- If the risk level is classified as HIGH, the file is copied into the feedback pool  
-- The feedback pool is automatically incorporated into the next training cycle  
+- A developer submits Python code annotated with PML contracts
+- The system performs inference using the deployed champion model
+- If the risk level is classified as HIGH, the file is copied into the feedback pool
+- The feedback pool is incorporated into the next training cycle
+- Future explanation layers can inspect tree-based model decisions through DPG-ready context files
 
-This lightweight scenario provides a simple form of system modeling and traceability aligned with classical Software Engineering practices.
+This lightweight scenario provides a simple form of system modeling and
+traceability aligned with classical Software Engineering practices.
 
+---
+
+## 11. Governability and Future Explainability Support
+
+SpecLens-PML currently implements governability through:
+
+- explicit TRAIN / TEST separation
+- champion / challenger model selection
+- recall-oriented promotion
+- policy thresholds in `config.yaml`
+- feedback-driven retraining
+- a single serving artifact
+
+The latest version also prepares the project for future explainability and
+governability analysis by storing model context files with feature names,
+training features, and training labels. These artifacts can be used to construct
+Decision Predicate Graphs for tree-based models, supporting inspection of
+structural decision predicates behind RISKY predictions.

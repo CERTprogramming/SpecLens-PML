@@ -37,9 +37,10 @@ Thumbs.db
 
 
 # ======================================================
-# Generated datasets (pipeline outputs)
+# Generated datasets and runtime data artifacts
 # ======================================================
 
+data/processed/*.csv
 data/*.csv
 
 # Keep only raw annotated examples tracked
@@ -47,6 +48,9 @@ data/*.csv
 !data/raw_test/*.py
 !data/raw_unseen/*.py
 !data/raw_feedback/*.py
+
+# Keep dataset adaptation notes tracked
+!data/python_by_contract_adaptation_log.md
 
 
 # ======================================================
@@ -61,9 +65,6 @@ data/_tmp_train/
 # ======================================================
 
 models/*.pkl
-
-# Keep only the promoted champion pointer if needed
-!models/best_model.pkl
 
 
 # ======================================================
@@ -99,21 +100,3 @@ docs/build/
 *.token
 *.key
 *.pem
-
-
-
-# Python / virtualenv
-.venv/
-__pycache__/
-*.pyc
-
-# Runtime generated datasets
-data/processed/*.csv
-data/_tmp_train/
-
-# Trained model artifacts
-models/*.pkl
-
-# Optional generated docs/build artifacts
-docs/build/
-
