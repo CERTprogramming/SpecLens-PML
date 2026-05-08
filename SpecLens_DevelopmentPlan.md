@@ -46,11 +46,22 @@ class Counter:
         self.value -= 1
 ```
 
+Named snapshots can capture simple pre-state expressions for postconditions:
+
+```python
+def append_value(values, item):
+    # @snapshot old_len = len(values)
+    # @ensures len(result) == old_len + 1
+    return values + [item]
+```
+
 Supported annotations:
 
 - `@requires <expr>` (precondition)
 - `@ensures <expr>` (postcondition)
 - `@invariant <expr>` (class invariant)
+- `@snapshot <name> = <expr>` (named pre-state value)
+- `old(<expr>)` inside postconditions and invariants
 
 ---
 
@@ -214,4 +225,3 @@ Documentation Tooling:
 
 - Developer-oriented API documentation supported through Sphinx (`docs/`)
 - Manual API index provided via `api.rst` for the core modules
-

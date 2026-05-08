@@ -10,7 +10,8 @@ Annotated Python programs are treated as structured training data:
 - PML contracts (@requires / @ensures / @invariant) are extracted
 - Structural and semantic features are computed
 - Functions are dynamically executed on generated inputs
-- Contract violations or runtime failures are labeled as RISKY
+- Contract violations, snapshot-evaluation failures, or runtime failures are
+  labeled as RISKY
 
 The output is a supervised dataset ready for ML training.
 """
@@ -18,8 +19,6 @@ The output is a supervised dataset ready for ML training.
 from __future__ import annotations
 
 from pathlib import Path
-from pipeline.features import extract_features
-from pml.parser import parse_file
 
 import ast
 import importlib.util
@@ -27,6 +26,13 @@ import pandas as pd
 import random
 import re
 import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from pipeline.features import extract_features
+from pml.parser import parse_file
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +101,21 @@ def capture_old_environment(expressions: list[str], env: dict) -> dict:
     return snapshots
 
 
+def capture_named_snapshots(snapshots: dict[str, str], env: dict) -> dict:
+    """Evaluate ``@snapshot`` bindings in the pre-call environment."""
+    values: dict[str, object] = {}
+    snapshot_env = dict(env)
+
+    for name, expr in snapshots.items():
+        try:
+            values[name] = eval(expr, {}, snapshot_env)
+        except Exception:
+            values[name] = None
+        snapshot_env[name] = values[name]
+
+    return values
+
+
 # ---------------------------------------------------------------------------
 # Helper: Contract Evaluation
 # ---------------------------------------------------------------------------
@@ -104,8 +125,9 @@ def eval_expr(expr: str, env: dict) -> bool:
     Evaluate a boolean PML contract expression.
 
     The expression is evaluated in a restricted environment containing
-    only the variables in ``env``. ``old(...)`` is supported in
-    postconditions and invariants as a reference to the pre-state.
+    only the variables in ``env``. ``old(...)`` and named ``@snapshot``
+    values are supported in postconditions and invariants as references
+    to the pre-state.
     If evaluation fails due to syntax errors or runtime exceptions,
     the expression is treated as False.
     """
@@ -198,6 +220,7 @@ def label_function(func_info, module, trials: int = 20) -> int:
             continue
 
         env["__old__"] = capture_old_environment(post_state_contracts, env)
+        env.update(capture_named_snapshots(func_info.get("snapshots", {}), env))
 
         try:
             result = func(*args)

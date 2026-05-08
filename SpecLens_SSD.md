@@ -14,6 +14,7 @@ The system analyzes Python functions annotated with PML contracts:
 - `@requires` (precondition)  
 - `@ensures` (postcondition)  
 - `@invariant` (class invariant)
+- `@snapshot` (named pre-state value)
 
 The ML task is formulated as a binary classification problem (`SAFE / RISKY`).
 Operational risk levels (`LOW / MEDIUM / HIGH`) are derived as a post-processing layer
@@ -76,7 +77,7 @@ These datasets are automatically produced during execution and are not tracked a
 Labels are produced through dynamic execution and contract checking:
 
 - Functions are executed on generated inputs  
-- Preconditions (`@requires`), postconditions (`@ensures`) and invariants (`@invariant`) are validated during execution.
+- Preconditions (`@requires`), postconditions (`@ensures`), invariants (`@invariant`), and supported pre-state snapshots are validated during execution.
 - Contract violations detected at runtime (`RISKY`)
 - Otherwise (`SAFE`)
 
@@ -170,4 +171,3 @@ The table below summarizes four key technical and operational risks in SpecLens-
 | Class imbalance | Medium | Recall-oriented promotion |
 | Overfitting on small datasets | Low | Held-out TEST evaluation |
 | Misinterpretation of probabilistic outputs | Medium | Decision-support advisory |
-

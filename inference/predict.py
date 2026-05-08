@@ -17,12 +17,17 @@ This module represents the serving component of the pipeline.
 """
 
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import joblib
 import pandas as pd
 import yaml
 
-from pipeline.features import extract_features
+from pipeline.features import extract_features, get_model_feature_names, make_feature_matrix
 from pml.parser import parse_file
 
 
@@ -119,7 +124,10 @@ def predict_file(path: Path) -> None:
     for f in functions:
         feats = extract_features(f)
 
-        X = pd.DataFrame([feats])
+        X = make_feature_matrix(
+            pd.DataFrame([feats]),
+            get_model_feature_names(model),
+        )
         score = model.predict_proba(X)[0][1]
 
         level = risk_level(score, low_t, med_t)
@@ -128,6 +136,7 @@ def predict_file(path: Path) -> None:
         print(f"  requires: {f['requires']}")
         print(f"  ensures:  {f['ensures']}")
         print(f"  invariant:{f['invariant']}")
+        print(f"  snapshots:{f.get('snapshots', {})}")
         print(f"  → risk score: {score:.3f} [{level}]\n")
 
 
@@ -143,4 +152,3 @@ if __name__ == "__main__":
         sys.exit(1)
 
     predict_file(Path(sys.argv[1]))
-

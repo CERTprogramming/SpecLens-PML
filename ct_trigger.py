@@ -16,6 +16,7 @@ The promoted champion model is always saved as:
 
 from pathlib import Path
 from pipeline.train import evaluate_model
+from pipeline.features import get_model_feature_names, make_feature_matrix
 
 import joblib
 import pandas as pd
@@ -107,13 +108,6 @@ def main(test_dataset: Path) -> None:
 
     df_test = pd.read_csv(test_dataset)
 
-    metadata_cols = {"name", "class", "source_file", "file", "function", "label"}
-    feature_cols = [
-        c for c in df_test.columns
-        if c not in metadata_cols and pd.api.types.is_numeric_dtype(df_test[c])
-    ]
-
-    X_test = df_test[feature_cols]
     y_test = df_test["label"]
 
     best_name = None
@@ -133,6 +127,7 @@ def main(test_dataset: Path) -> None:
         print(f"\nEvaluating candidate: {name}")
 
         model = joblib.load(path)
+        X_test = make_feature_matrix(df_test, get_model_feature_names(model))
 
         recall_risky = evaluate_model(model, X_test, y_test)
 
@@ -181,4 +176,3 @@ if __name__ == "__main__":
         sys.exit(1)
 
     main(Path(sys.argv[1]))
-

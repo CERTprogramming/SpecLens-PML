@@ -21,6 +21,12 @@ and promotes the best-performing model based on recall on the RISKY class.
 """
 
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, recall_score
 from sklearn.linear_model import LogisticRegression
@@ -30,6 +36,8 @@ import argparse
 import joblib
 import pandas as pd
 import yaml
+
+from pipeline.features import make_feature_matrix, select_numeric_feature_columns
 
 
 # ------------------------------------------------------------
@@ -180,13 +188,8 @@ def train(dataset_path: Path, model_type: str):
 
     df = pd.read_csv(dataset_path)
 
-    metadata_cols = {"name", "class", "source_file", "file", "function", "label"}
-    feature_cols = [
-        c for c in df.columns
-        if c not in metadata_cols and pd.api.types.is_numeric_dtype(df[c])
-    ]
-
-    X = df[feature_cols]
+    feature_cols = select_numeric_feature_columns(df)
+    X = make_feature_matrix(df, feature_cols)
     y = df["label"]
 
     # Internal validation split (inside TRAIN pool, diagnostic only)
@@ -204,6 +207,11 @@ def train(dataset_path: Path, model_type: str):
     # Fit model on TRAIN subset
     model.fit(X_train, y_train)
 
+    # Keep enough context on the model artifact for future DPGExplainer work.
+    model.spec_lens_feature_names = list(feature_cols)
+    model.spec_lens_training_features = X_train.reset_index(drop=True).copy()
+    model.spec_lens_training_labels = y_train.reset_index(drop=True).copy()
+
     # Evaluate on validation subset
     recall_risky = evaluate_model(model, X_val, y_val)
 
@@ -214,7 +222,18 @@ def train(dataset_path: Path, model_type: str):
     out_path = models_dir / f"{model_type}.pkl"
     joblib.dump(model, out_path)
 
+    context_path = models_dir / f"{model_type}_training_context.pkl"
+    joblib.dump(
+        {
+            "feature_names": list(feature_cols),
+            "training_features": model.spec_lens_training_features,
+            "training_labels": model.spec_lens_training_labels,
+        },
+        context_path,
+    )
+
     print(f"\nCandidate model saved to: {out_path}")
+    print(f"Training context saved to: {context_path}")
 
     return recall_risky
 
@@ -243,4 +262,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     train(Path(args.dataset), args.model)
-

@@ -5,7 +5,8 @@ Machine Learning and MLOps principles to the domain of software
 correctness.
 The project introduces PML (Python Modelling Language), a
 lightweight specification language inspired by JML (Java Modelling Language),
-including support for lightweight pre-state references through ``old(...)``,
+including support for lightweight pre-state references through ``old(...)``
+and named ``@snapshot`` bindings,
 and builds an end-to-end MLOps pipeline with feedback-driven retraining:
 
 - Ingests Python code annotated with PML contracts
@@ -42,6 +43,15 @@ def remove_last(items):
     return items[:-1]
 ```
 
+Named snapshots can bind pre-state expressions to readable names before the call:
+
+```python
+def append_value(values, item):
+    # @snapshot old_len = len(values)
+    # @ensures len(result) == old_len + 1
+    return values + [item]
+```
+
 Class invariants can also be expressed to capture persistent safety conditions:
 
 ```python
@@ -60,7 +70,17 @@ Supported annotations:
 - `@requires <expr>` (precondition)
 - `@ensures <expr>` (postcondition)
 - `@invariant <expr>` (class invariant)
+- `@snapshot <name> = <expr>` (named pre-state value available to postconditions)
 - `old(<expr>)` inside `@ensures` / `@invariant` to refer to a captured pre-state value
+
+---
+
+## Data Sources
+
+Some raw examples are adapted from the Python-by-Contract Dataset / corpus,
+which uses `icontract` annotations. The adapted files preserve only contract
+ideas that fit the SpecLens-PML comment syntax (`@requires`, `@ensures`,
+`@invariant`, `old(...)`, and simple named `@snapshot` bindings).
 
 ---
 
@@ -125,7 +145,7 @@ SpecLens-PML intentionally operates in the space between traditional
 software testing and full formal verification:
 
 - Like testing, it relies on dynamic execution and observed runtime behavior
-- Like specification-based methods, it uses contracts (`requires / ensures / invariant / old(...)`)
+- Like specification-based methods, it uses contracts (`requires / ensures / invariant / old(...) / snapshot`)
   as structured semantic signals
 
 However, unlike theorem provers or static analyzers, SpecLens-PML does not
@@ -169,6 +189,7 @@ spec-lens-pml/
 ├── models/
 │   ├── logistic.pkl        # Candidate model artifact (baseline)
 │   ├── forest.pkl          # Candidate model artifact (challenger)
+│   ├── *_training_context.pkl # Feature names + training matrix + labels
 │   └── best_model.pkl      # Promoted champion model (used for inference)
 ├── requirements.txt
 └── README.md
@@ -284,7 +305,7 @@ This performs:
    - `build_dataset.py` then:
      - Parses Python files annotated with PML contracts
      - Executes functions with generated inputs
-     - Checks preconditions, postconditions, invariants, and supported `old(...)` references dynamically
+     - Checks preconditions, postconditions, invariants, supported `old(...)` references, and named snapshots dynamically
      - Assigns labels based on observed contract violations
      - Produces the training dataset:
 
@@ -295,6 +316,26 @@ This performs:
    The generated CSV files include both numeric ML features and lightweight metadata
    such as source file and function name, while training scripts automatically select
    only the numeric feature subset for model fitting.
+
+   Current generated numeric feature columns:
+
+   ```text
+   n_params, n_requires, n_ensures, n_invariants, n_contracts_total,
+   n_loc, has_self, has_other,
+   requires_complexity, ensures_complexity, invariants_complexity,
+   has_missing_requires, has_stateful_contract,
+   n_old_refs, ensures_has_old, invariants_has_old,
+   n_snapshots, has_snapshot, snapshot_complexity,
+   ensures_uses_snapshot, contract_has_prestate_reference, has_prestate_reference,
+   ensures_has_arith, ensures_has_cmp, invariants_has_cmp,
+   n_branches, n_loops, n_returns,
+   has_subscript, has_division, has_mutation, has_method_call
+   ```
+
+   Metadata columns are excluded from model inputs. The shared selector excludes
+   `name`, `class`, `source_file`, `file`, `function`, and `label`, then keeps
+   only numeric columns. Inference aligns its feature frame to the feature names
+   stored on the trained model.
 
    Note: labeling uses randomized input generation. Unless you fix a seed,
    repeated runs may produce slightly different labels and metrics.
@@ -325,6 +366,19 @@ This performs:
      models/logistic.pkl
      models/forest.pkl
      ```
+
+   - Each candidate also stores DPG-ready context:
+
+     ```text
+     models/logistic_training_context.pkl
+     models/forest_training_context.pkl
+     ```
+
+     These sidecar artifacts contain `feature_names`, `training_features`, and
+     `training_labels`. The same data is attached to the trained estimator under
+     `spec_lens_feature_names`, `spec_lens_training_features`, and
+     `spec_lens_training_labels`, so a future DPGExplainer integration can load
+     the Random Forest together with its training feature matrix and targets.
 
 4. Continuous Training Trigger (promotion):
 
