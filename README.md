@@ -289,6 +289,28 @@ Decision Predicate Graph (DPG) experiments on tree-based models.
 
 ---
 
+## First DPG Experiment
+
+A first Decision Predicate Graph (DPG) experiment is available for the Random
+Forest candidate model. DPG is applied to `models/forest.pkl` because DPG
+requires a tree-based model; the operational champion promoted by the
+Continuous Training Trigger may still be logistic and is not changed by this
+experiment.
+
+Run the experiment with:
+
+```bash
+python3 experiments/dpg_explain_forest.py
+```
+
+Outputs are written to:
+
+```text
+experiments/dpg_outputs/
+```
+
+---
+
 ## Setup
 
 Create and activate a virtual environment:
