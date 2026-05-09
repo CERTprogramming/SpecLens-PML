@@ -309,6 +309,13 @@ Outputs are written to:
 experiments/dpg_outputs/
 ```
 
+The full DPG is saved and analyzed computationally through CSV/text artifacts.
+For readable figures, use simplified or class-focused subgraphs, for example:
+
+```bash
+python3 experiments/dpg_explain_forest.py --render-simplified-global
+```
+
 ---
 
 ## Setup

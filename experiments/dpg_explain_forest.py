@@ -22,7 +22,10 @@ import json
 import multiprocessing as mp
 import os
 import signal
+import shutil
+import subprocess
 import sys
+import textwrap
 
 import joblib
 import pandas as pd
@@ -43,6 +46,15 @@ OUTPUT_DIR = ROOT / "experiments" / "dpg_outputs"
 DEFAULT_RENDER_TIMEOUT_SECONDS = 30
 DEFAULT_MAX_RENDER_NODES = 200
 DEFAULT_MAX_RENDER_EDGES = 1000
+DEFAULT_SIMPLIFIED_TOP_K_NODES = 30
+DEFAULT_SIMPLIFIED_NODE_METRIC = "betweenness"
+DEFAULT_SIMPLIFIED_MAX_EDGES = 80
+
+SIMPLIFIED_NODE_METRICS = {
+    "betweenness": "Betweenness centrality",
+    "local_reaching": "Local reaching centrality",
+    "degree": "Degree",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -734,6 +746,368 @@ def save_structured_artifacts(
 
 
 # ---------------------------------------------------------------------------
+# Simplified Global Rendering
+# ---------------------------------------------------------------------------
+
+def load_metric_tables(
+    output_dir: Path,
+    explanation: Any,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Load DPG metric tables from disk when available.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Directory containing generated DPG artifacts.
+    explanation : Any
+        In-memory DPG explanation used as a fallback.
+
+    Returns
+    -------
+    tuple[pandas.DataFrame, pandas.DataFrame]
+        Node metrics and edge metrics.
+    """
+    node_metrics_path = output_dir / "dpg_node_metrics.csv"
+    edge_metrics_path = output_dir / "dpg_edge_metrics.csv"
+
+    if node_metrics_path.exists():
+        node_metrics = pd.read_csv(node_metrics_path)
+    else:
+        node_metrics = explanation.node_metrics.copy()
+
+    if edge_metrics_path.exists():
+        edge_metrics = pd.read_csv(edge_metrics_path)
+    else:
+        edge_metrics = explanation.edge_metrics.copy()
+
+    return node_metrics, edge_metrics
+
+
+def select_simplified_global_tables(
+    node_metrics: pd.DataFrame,
+    edge_metrics: pd.DataFrame,
+    metric_name: str,
+    top_k_nodes: int,
+    max_edges: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Select high-importance nodes and connecting edges for a readable DPG view.
+
+    Parameters
+    ----------
+    node_metrics : pandas.DataFrame
+        Full DPG node metric table.
+    edge_metrics : pandas.DataFrame
+        Full DPG edge metric table.
+    metric_name : str
+        Friendly metric key used for node ranking.
+    top_k_nodes : int
+        Number of nodes to retain.
+    max_edges : int
+        Maximum number of retained edges.
+
+    Returns
+    -------
+    tuple[pandas.DataFrame, pandas.DataFrame]
+        Simplified node table and edge table.
+
+    Raises
+    ------
+    ValueError
+        If required columns or requested metric are unavailable.
+    """
+    metric_column = SIMPLIFIED_NODE_METRICS[metric_name]
+    required_node_columns = {"Node", "Label", metric_column}
+    missing_node_columns = required_node_columns - set(node_metrics.columns)
+    if missing_node_columns:
+        raise ValueError(
+            f"Node metrics are missing columns: {sorted(missing_node_columns)}"
+        )
+
+    required_edge_columns = {"Source_id", "Target_id"}
+    missing_edge_columns = required_edge_columns - set(edge_metrics.columns)
+    if missing_edge_columns:
+        raise ValueError(
+            f"Edge metrics are missing columns: {sorted(missing_edge_columns)}"
+        )
+
+    if top_k_nodes <= 0:
+        raise ValueError("--top-k-nodes must be positive.")
+
+    if max_edges < 0:
+        raise ValueError("--max-edges must be zero or positive.")
+
+    ranked_nodes = node_metrics.copy()
+    ranked_nodes[metric_column] = pd.to_numeric(
+        ranked_nodes[metric_column],
+        errors="coerce",
+    ).fillna(0.0)
+    ranked_nodes = ranked_nodes.sort_values(
+        [metric_column, "Label"],
+        ascending=[False, True],
+    )
+
+    simplified_nodes = ranked_nodes.head(top_k_nodes).copy()
+    selected_ids = set(simplified_nodes["Node"].astype(str))
+
+    simplified_edges = edge_metrics[
+        edge_metrics["Source_id"].astype(str).isin(selected_ids)
+        & edge_metrics["Target_id"].astype(str).isin(selected_ids)
+    ].copy()
+
+    if "Weight" in simplified_edges.columns:
+        simplified_edges["Weight"] = pd.to_numeric(
+            simplified_edges["Weight"],
+            errors="coerce",
+        ).fillna(0.0)
+        simplified_edges = simplified_edges.sort_values(
+            ["Weight", "Source_id", "Target_id"],
+            ascending=[False, True, True],
+        )
+
+    simplified_edges = simplified_edges.head(max_edges)
+
+    return simplified_nodes, simplified_edges
+
+
+def dot_quote(value: Any) -> str:
+    """
+    Quote a value for DOT output.
+
+    Parameters
+    ----------
+    value : Any
+        Value to render as a DOT string.
+
+    Returns
+    -------
+    str
+        Escaped DOT string literal.
+    """
+    text = str(value)
+    text = text.replace("\\", "\\\\").replace('"', '\\"')
+    text = text.replace("\n", "\\n")
+    return f'"{text}"'
+
+
+def wrap_dot_label(label: Any, width: int = 32) -> str:
+    """
+    Wrap long node labels for a compact DOT graph.
+
+    Parameters
+    ----------
+    label : Any
+        Original DPG node label.
+    width : int
+        Preferred line width.
+
+    Returns
+    -------
+    str
+        Wrapped label.
+    """
+    return "\n".join(textwrap.wrap(str(label), width=width)) or str(label)
+
+
+def write_simplified_dot(
+    path: Path,
+    simplified_nodes: pd.DataFrame,
+    simplified_edges: pd.DataFrame,
+    metric_name: str,
+) -> Path:
+    """
+    Write a simplified global DPG as a DOT file.
+
+    Parameters
+    ----------
+    path : Path
+        DOT output path.
+    simplified_nodes : pandas.DataFrame
+        Retained node table.
+    simplified_edges : pandas.DataFrame
+        Retained edge table.
+    metric_name : str
+        Friendly metric key used for node ranking.
+
+    Returns
+    -------
+    Path
+        Written DOT path.
+    """
+    metric_column = SIMPLIFIED_NODE_METRICS[metric_name]
+    lines = [
+        "digraph SimplifiedDPG {",
+        "  graph [rankdir=LR, bgcolor=\"white\", overlap=false, splines=true];",
+        "  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\", fontsize=10, margin=\"0.08,0.05\"];",
+        "  edge [fontname=\"Helvetica\", fontsize=9, color=\"#6b7280\", arrowsize=0.7];",
+        f"  labelloc=\"t\";",
+        f"  label={dot_quote(f'SpecLens-PML simplified DPG: top {len(simplified_nodes)} nodes by {metric_name}')};",
+        "",
+    ]
+
+    for _, row in simplified_nodes.iterrows():
+        node_id = row["Node"]
+        label = wrap_dot_label(row["Label"])
+        metric_value = float(row.get(metric_column, 0.0))
+        fillcolor = "#bfdbfe" if str(row["Label"]).startswith("Class ") else "#fecaca"
+        display_label = f"{label}\n{metric_name}: {metric_value:.4f}"
+        lines.append(
+            "  "
+            f"{dot_quote(node_id)} "
+            "["
+            f"label={dot_quote(display_label)}, "
+            f"fillcolor={dot_quote(fillcolor)}, "
+            "color=\"#374151\""
+            "];"
+        )
+
+    lines.append("")
+
+    for _, row in simplified_edges.iterrows():
+        edge_attrs = []
+        if "Weight" in simplified_edges.columns:
+            edge_label = f"w={float(row['Weight']):.0f}"
+            edge_attrs.append(f"label={dot_quote(edge_label)}")
+            edge_attrs.append(
+                f"penwidth={max(1.0, min(5.0, 1.0 + float(row['Weight']) / 20.0)):.2f}"
+            )
+
+        attr_text = f" [{', '.join(edge_attrs)}]" if edge_attrs else ""
+        lines.append(
+            "  "
+            f"{dot_quote(row['Source_id'])} -> {dot_quote(row['Target_id'])}"
+            f"{attr_text};"
+        )
+
+    lines.append("}")
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def render_dot_file(
+    dot_path: Path,
+    output_dir: Path,
+    timeout_seconds: int,
+) -> list[Path]:
+    """
+    Render a DOT file to PNG and SVG with Graphviz if available.
+
+    Parameters
+    ----------
+    dot_path : Path
+        DOT source path.
+    output_dir : Path
+        Output directory.
+    timeout_seconds : int
+        Maximum seconds allowed per Graphviz render.
+
+    Returns
+    -------
+    list[Path]
+        Rendered image paths, if Graphviz succeeds.
+    """
+    dot_binary = shutil.which("dot")
+    if dot_binary is None:
+        print("Graphviz 'dot' command not found. Simplified DOT was saved without image rendering.")
+        return []
+
+    rendered_paths: list[Path] = []
+
+    for fmt in ["png", "svg"]:
+        out_path = output_dir / f"simplified_global_dpg.{fmt}"
+        try:
+            subprocess.run(
+                [
+                    dot_binary,
+                    f"-T{fmt}",
+                    str(dot_path),
+                    "-o",
+                    str(out_path),
+                ],
+                check=True,
+                timeout=timeout_seconds,
+            )
+            rendered_paths.append(out_path)
+        except subprocess.TimeoutExpired:
+            print(f"Simplified {fmt.upper()} rendering timed out after {timeout_seconds} seconds.")
+        except subprocess.CalledProcessError as exc:
+            print(f"Simplified {fmt.upper()} rendering failed: {exc}")
+
+    return rendered_paths
+
+
+def save_simplified_global_rendering(
+    output_dir: Path,
+    explanation: Any,
+    top_k_nodes: int,
+    metric_name: str,
+    max_edges: int,
+    timeout_seconds: int,
+) -> list[Path]:
+    """
+    Save and render a simplified global DPG view.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Output directory.
+    explanation : Any
+        In-memory DPG explanation used as a fallback source.
+    top_k_nodes : int
+        Number of high-importance nodes to retain.
+    metric_name : str
+        Friendly metric key used for node ranking.
+    max_edges : int
+        Maximum number of retained edges.
+    timeout_seconds : int
+        Maximum seconds per Graphviz render.
+
+    Returns
+    -------
+    list[Path]
+        Written DOT, CSV, and rendered image paths.
+    """
+    print("\n=== Simplified global rendering ===")
+
+    node_metrics, edge_metrics = load_metric_tables(output_dir, explanation)
+    simplified_nodes, simplified_edges = select_simplified_global_tables(
+        node_metrics,
+        edge_metrics,
+        metric_name,
+        top_k_nodes,
+        max_edges,
+    )
+
+    outputs: list[Path] = []
+
+    nodes_path = output_dir / "simplified_global_nodes.csv"
+    simplified_nodes.to_csv(nodes_path, index=False)
+    outputs.append(nodes_path)
+
+    edges_path = output_dir / "simplified_global_edges.csv"
+    simplified_edges.to_csv(edges_path, index=False)
+    outputs.append(edges_path)
+
+    dot_path = write_simplified_dot(
+        output_dir / "simplified_global_dpg.dot",
+        simplified_nodes,
+        simplified_edges,
+        metric_name,
+    )
+    outputs.append(dot_path)
+
+    print(
+        "Simplified graph selected "
+        f"{len(simplified_nodes)} nodes and {len(simplified_edges)} edges."
+    )
+
+    outputs.extend(render_dot_file(dot_path, output_dir, timeout_seconds))
+
+    return outputs
+
+
+# ---------------------------------------------------------------------------
 # Optional Rendering
 # ---------------------------------------------------------------------------
 
@@ -1039,6 +1413,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MAX_RENDER_EDGES,
         help="Skip optional rendering when the DPG has more edges than this.",
     )
+    parser.add_argument(
+        "--render-simplified-global",
+        action="store_true",
+        help="Render a simplified global DPG view from retained high-importance nodes.",
+    )
+    parser.add_argument(
+        "--top-k-nodes",
+        type=int,
+        default=DEFAULT_SIMPLIFIED_TOP_K_NODES,
+        help="Number of high-importance nodes retained in the simplified global view.",
+    )
+    parser.add_argument(
+        "--node-metric",
+        choices=sorted(SIMPLIFIED_NODE_METRICS),
+        default=DEFAULT_SIMPLIFIED_NODE_METRIC,
+        help="Node metric used to rank nodes for the simplified global view.",
+    )
+    parser.add_argument(
+        "--max-edges",
+        type=int,
+        default=DEFAULT_SIMPLIFIED_MAX_EDGES,
+        help="Maximum edges retained among selected simplified global nodes.",
+    )
 
     return parser
 
@@ -1052,6 +1449,10 @@ def main(
     render_timeout: int = DEFAULT_RENDER_TIMEOUT_SECONDS,
     max_render_nodes: int = DEFAULT_MAX_RENDER_NODES,
     max_render_edges: int = DEFAULT_MAX_RENDER_EDGES,
+    render_simplified_global: bool = False,
+    top_k_nodes: int = DEFAULT_SIMPLIFIED_TOP_K_NODES,
+    node_metric: str = DEFAULT_SIMPLIFIED_NODE_METRIC,
+    max_edges: int = DEFAULT_SIMPLIFIED_MAX_EDGES,
 ) -> None:
     """
     Run the first SpecLens-PML DPG experiment.
@@ -1104,6 +1505,18 @@ def main(
             max_render_edges,
         )
 
+        if render_simplified_global:
+            rendered_outputs.extend(
+                save_simplified_global_rendering(
+                    OUTPUT_DIR,
+                    explanation,
+                    top_k_nodes,
+                    node_metric,
+                    max_edges,
+                    render_timeout,
+                )
+            )
+
     except ImportError:
         sys.exit(1)
     except FileNotFoundError as exc:
@@ -1136,4 +1549,8 @@ if __name__ == "__main__":
         render_timeout=args.render_timeout,
         max_render_nodes=args.max_render_nodes,
         max_render_edges=args.max_render_edges,
+        render_simplified_global=args.render_simplified_global,
+        top_k_nodes=args.top_k_nodes,
+        node_metric=args.node_metric,
+        max_edges=args.max_edges,
     )
