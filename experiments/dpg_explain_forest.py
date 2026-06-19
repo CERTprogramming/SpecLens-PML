@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import argparse
+import ast
 import json
 import multiprocessing as mp
 import os
@@ -49,6 +50,8 @@ DEFAULT_MAX_RENDER_EDGES = 1000
 DEFAULT_SIMPLIFIED_TOP_K_NODES = 30
 DEFAULT_SIMPLIFIED_NODE_METRIC = "betweenness"
 DEFAULT_SIMPLIFIED_MAX_EDGES = 80
+DEFAULT_COMMUNITY_MIXED_MARGIN = 0.10
+DEFAULT_COMMUNITY_TOP_PREDICATES = 3
 
 SIMPLIFIED_NODE_METRICS = {
     "betweenness": "Betweenness centrality",
@@ -784,6 +787,58 @@ def load_metric_tables(
     return node_metrics, edge_metrics
 
 
+def is_class_node_label(label: Any) -> bool:
+    """
+    Return whether a DPG node label represents a problem class leaf.
+
+    Parameters
+    ----------
+    label : Any
+        Node label to inspect.
+
+    Returns
+    -------
+    bool
+        ``True`` when the normalized label starts with ``"Class "``.
+    """
+    return str(label).strip().lower().startswith("class ")
+
+
+def _sort_edges_by_weight(edge_table: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return edges ordered by descending weight.
+
+    Rows with the same weight are sorted deterministically by source and target
+    identifiers.
+
+    Parameters
+    ----------
+    edge_table : pandas.DataFrame
+        DPG edge table to sort.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Sorted copy of the edge table.
+    """
+    ordered = edge_table.copy()
+    if "Weight" in ordered.columns:
+        ordered["Weight"] = pd.to_numeric(
+            ordered["Weight"],
+            errors="coerce",
+        ).fillna(0.0)
+        ordered = ordered.sort_values(
+            ["Weight", "Source_id", "Target_id"],
+            ascending=[False, True, True],
+        )
+    else:
+        ordered = ordered.sort_values(
+            ["Source_id", "Target_id"],
+            ascending=[True, True],
+        )
+    return ordered
+
+
 def select_simplified_global_tables(
     node_metrics: pd.DataFrame,
     edge_metrics: pd.DataFrame,
@@ -792,7 +847,13 @@ def select_simplified_global_tables(
     max_edges: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Select high-importance nodes and connecting edges for a readable DPG view.
+    Select a readable class-aware subgraph of the global DPG.
+
+    The ``top_k_nodes`` limit applies to predicate nodes. All class leaves are
+    retained independently of their centrality score. For every class leaf,
+    the strongest incoming edge is preserved; when its source predicate is not
+    already among the top-k predicates, that predicate is added as a bridge.
+    Remaining edges are selected by descending weight up to ``max_edges``.
 
     Parameters
     ----------
@@ -801,11 +862,13 @@ def select_simplified_global_tables(
     edge_metrics : pandas.DataFrame
         Full DPG edge metric table.
     metric_name : str
-        Friendly metric key used for node ranking.
+        Friendly metric key used for predicate-node ranking.
     top_k_nodes : int
-        Number of nodes to retain.
+        Number of high-importance predicate nodes to retain. Class leaves and
+        any bridge predicates required to connect them are additional.
     max_edges : int
-        Maximum number of retained edges.
+        Preferred maximum number of retained edges. One incoming edge per
+        class is always retained, even when this requires exceeding the limit.
 
     Returns
     -------
@@ -839,35 +902,97 @@ def select_simplified_global_tables(
         raise ValueError("--max-edges must be zero or positive.")
 
     ranked_nodes = node_metrics.copy()
+    ranked_nodes["Node"] = ranked_nodes["Node"].astype(str)
     ranked_nodes[metric_column] = pd.to_numeric(
         ranked_nodes[metric_column],
         errors="coerce",
     ).fillna(0.0)
-    ranked_nodes = ranked_nodes.sort_values(
+    ranked_nodes["_is_class"] = ranked_nodes["Label"].map(is_class_node_label)
+
+    class_nodes = ranked_nodes[ranked_nodes["_is_class"]].copy()
+    predicate_nodes = ranked_nodes[~ranked_nodes["_is_class"]].copy()
+    predicate_nodes = predicate_nodes.sort_values(
         [metric_column, "Label"],
         ascending=[False, True],
     )
 
-    simplified_nodes = ranked_nodes.head(top_k_nodes).copy()
-    selected_ids = set(simplified_nodes["Node"].astype(str))
+    simplified_nodes = predicate_nodes.head(top_k_nodes).copy()
+    selected_ids = set(simplified_nodes["Node"])
+    class_ids = set(class_nodes["Node"])
 
-    simplified_edges = edge_metrics[
-        edge_metrics["Source_id"].astype(str).isin(selected_ids)
-        & edge_metrics["Target_id"].astype(str).isin(selected_ids)
+    normalized_edges = edge_metrics.copy()
+    normalized_edges["Source_id"] = normalized_edges["Source_id"].astype(str)
+    normalized_edges["Target_id"] = normalized_edges["Target_id"].astype(str)
+    normalized_edges = _sort_edges_by_weight(normalized_edges)
+
+    # Keep every class visible and connected to its strongest predecessor.
+    mandatory_class_edges: list[pd.DataFrame] = []
+    bridge_ids: set[str] = set()
+    for class_id in sorted(class_ids):
+        incoming = normalized_edges[normalized_edges["Target_id"] == class_id]
+        if incoming.empty:
+            continue
+
+        incoming_from_selected = incoming[incoming["Source_id"].isin(selected_ids)]
+        chosen = (
+            incoming_from_selected.head(1)
+            if not incoming_from_selected.empty
+            else incoming.head(1)
+        )
+        mandatory_class_edges.append(chosen)
+        bridge_ids.update(chosen["Source_id"].astype(str))
+
+    if bridge_ids:
+        bridge_nodes = predicate_nodes[predicate_nodes["Node"].isin(bridge_ids)]
+        simplified_nodes = pd.concat(
+            [simplified_nodes, bridge_nodes],
+            ignore_index=True,
+        ).drop_duplicates(subset=["Node"], keep="first")
+        selected_ids.update(bridge_ids)
+
+    simplified_nodes = pd.concat(
+        [simplified_nodes, class_nodes],
+        ignore_index=True,
+    ).drop_duplicates(subset=["Node"], keep="first")
+    selected_ids.update(class_ids)
+
+    candidate_edges = normalized_edges[
+        normalized_edges["Source_id"].isin(selected_ids)
+        & normalized_edges["Target_id"].isin(selected_ids)
     ].copy()
 
-    if "Weight" in simplified_edges.columns:
-        simplified_edges["Weight"] = pd.to_numeric(
-            simplified_edges["Weight"],
-            errors="coerce",
-        ).fillna(0.0)
-        simplified_edges = simplified_edges.sort_values(
-            ["Weight", "Source_id", "Target_id"],
-            ascending=[False, True, True],
+    if mandatory_class_edges:
+        mandatory_edges = pd.concat(mandatory_class_edges, ignore_index=True)
+        mandatory_edges = mandatory_edges.drop_duplicates(
+            subset=["Source_id", "Target_id"],
+            keep="first",
         )
+    else:
+        mandatory_edges = candidate_edges.head(0).copy()
 
-    simplified_edges = simplified_edges.head(max_edges)
+    mandatory_pairs = set(
+        zip(mandatory_edges["Source_id"], mandatory_edges["Target_id"])
+    )
+    optional_mask = [
+        (source, target) not in mandatory_pairs
+        for source, target in zip(
+            candidate_edges["Source_id"],
+            candidate_edges["Target_id"],
+        )
+    ]
+    optional_edges = candidate_edges.loc[optional_mask]
 
+    optional_limit = max(0, max_edges - len(mandatory_edges))
+    simplified_edges = pd.concat(
+        [mandatory_edges, optional_edges.head(optional_limit)],
+        ignore_index=True,
+    ).drop_duplicates(subset=["Source_id", "Target_id"], keep="first")
+
+    # Class connectivity is more important than a strict edge cap.
+    if len(mandatory_edges) > max_edges:
+        simplified_edges = mandatory_edges.copy()
+
+    simplified_nodes = simplified_nodes.drop(columns=["_is_class"], errors="ignore")
     return simplified_nodes, simplified_edges
 
 
@@ -939,10 +1064,17 @@ def write_simplified_dot(
     lines = [
         "digraph SimplifiedDPG {",
         "  graph [rankdir=LR, bgcolor=\"white\", overlap=false, splines=true];",
-        "  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\", fontsize=10, margin=\"0.08,0.05\"];",
+        (
+            '  node [shape=box, style="rounded,filled", '
+            'fontname="Helvetica", fontsize=10, margin="0.08,0.05"];'
+        ),
         "  edge [fontname=\"Helvetica\", fontsize=9, color=\"#6b7280\", arrowsize=0.7];",
         f"  labelloc=\"t\";",
-        f"  label={dot_quote(f'SpecLens-PML simplified DPG: top {len(simplified_nodes)} nodes by {metric_name}')};",
+        (
+            "  label="
+            f"{dot_quote('SpecLens-PML simplified DPG: central predicates and '
+                         f'class leaves ({metric_name})')};"
+        ),
         "",
     ]
 
@@ -950,15 +1082,39 @@ def write_simplified_dot(
         node_id = row["Node"]
         label = wrap_dot_label(row["Label"])
         metric_value = float(row.get(metric_column, 0.0))
-        fillcolor = "#bfdbfe" if str(row["Label"]).startswith("Class ") else "#fecaca"
-        display_label = f"{label}\n{metric_name}: {metric_value:.4f}"
+        raw_label = str(row["Label"])
+        is_class = is_class_node_label(raw_label)
+
+        if is_class:
+            normalized_label = raw_label.upper()
+            if "SAFE" in normalized_label:
+                fillcolor = "#bbf7d0"
+                border_color = "#166534"
+            elif "RISKY" in normalized_label:
+                fillcolor = "#fecaca"
+                border_color = "#991b1b"
+            else:
+                fillcolor = "#bfdbfe"
+                border_color = "#1d4ed8"
+            display_label = label
+            shape = "doubleoctagon"
+            penwidth = 2.4
+        else:
+            fillcolor = "#fef3c7"
+            border_color = "#374151"
+            display_label = f"{label}\n{metric_name}: {metric_value:.4f}"
+            shape = "box"
+            penwidth = 1.0
+
         lines.append(
             "  "
             f"{dot_quote(node_id)} "
             "["
             f"label={dot_quote(display_label)}, "
             f"fillcolor={dot_quote(fillcolor)}, "
-            "color=\"#374151\""
+            f"color={dot_quote(border_color)}, "
+            f"shape={dot_quote(shape)}, "
+            f"penwidth={penwidth:.1f}"
             "];"
         )
 
@@ -1009,7 +1165,10 @@ def render_dot_file(
     """
     dot_binary = shutil.which("dot")
     if dot_binary is None:
-        print("Graphviz 'dot' command not found. Simplified DOT was saved without image rendering.")
+        print(
+            "Graphviz 'dot' command not found. "
+            "Simplified DOT was saved without image rendering."
+        )
         return []
 
     rendered_paths: list[Path] = []
@@ -1104,6 +1263,685 @@ def save_simplified_global_rendering(
 
     outputs.extend(render_dot_file(dot_path, output_dir, timeout_seconds))
 
+    return outputs
+
+
+# ---------------------------------------------------------------------------
+# Class-aware Community Analysis
+# ---------------------------------------------------------------------------
+
+def _find_column(columns: list[str], candidates: tuple[str, ...]) -> Optional[str]:
+    """
+    Find a column whose normalized name matches one of the candidates.
+
+    Parameters
+    ----------
+    columns : list[str]
+        Available column names.
+    candidates : tuple[str, ...]
+        Accepted normalized aliases, checked in order.
+
+    Returns
+    -------
+    Optional[str]
+        Original column name when a match is found, otherwise ``None``.
+    """
+    normalized = {str(column).strip().lower().replace(" ", "_"): column for column in columns}
+    for candidate in candidates:
+        key = candidate.strip().lower().replace(" ", "_")
+        if key in normalized:
+            return normalized[key]
+    return None
+
+
+def load_community_membership(output_dir: Path, explanation: Any) -> pd.DataFrame:
+    """
+    Load and normalize DPG community membership.
+
+    DPG's ``GraphMetrics.communities_to_csv`` writes a long-form CSV with the
+    columns ``Section``, ``Key``, and ``Value``. Community membership is stored
+    in rows whose section is ``Clusters``; ``Key`` is the class-oriented cluster
+    name and ``Value`` is a serialized list of predicate labels.
+
+    Older or alternative two-column exports are also accepted. Predicate
+    labels are mapped back to the node identifiers used by ``node_metrics`` so
+    the rest of the analysis can join membership, node, and edge tables safely.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Directory containing ``dpg_communities.csv`` and related artifacts.
+    explanation : Any
+        In-memory DPG explanation used as a fallback source.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Normalized table with ``Node`` and ``Community`` columns.
+
+    Raises
+    ------
+    ValueError
+        If node metrics are invalid or community membership cannot be
+        normalized from either the CSV artifact or the in-memory explanation.
+    """
+
+    node_metrics = getattr(explanation, "node_metrics", None)
+    if not isinstance(node_metrics, pd.DataFrame):
+        node_metrics = pd.DataFrame(node_metrics)
+    if (
+        node_metrics.empty
+        or "Node" not in node_metrics.columns
+        or "Label" not in node_metrics.columns
+    ):
+        raise ValueError("DPG node metrics must contain Node and Label columns.")
+
+    node_table = node_metrics[["Node", "Label"]].copy()
+    node_table["Node"] = node_table["Node"].astype(str)
+    node_table["Label"] = node_table["Label"].astype(str)
+
+    label_to_nodes: dict[str, list[str]] = {}
+    for _, row in node_table.iterrows():
+        label_to_nodes.setdefault(row["Label"], []).append(row["Node"])
+    known_node_ids = set(node_table["Node"])
+
+    def parse_members(value: Any) -> list[str]:
+        """
+        Normalize a serialized DPG cluster value.
+
+        Parameters
+        ----------
+        value : Any
+            Serialized member collection, mapping, scalar, or iterable.
+
+        Returns
+        -------
+        list[str]
+            Community member labels or node identifiers.
+        """
+        if isinstance(value, dict):
+            return [str(item) for item in value.keys()]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item) for item in value]
+        if pd.isna(value):
+            return []
+
+        text = str(value).strip()
+        if not text:
+            return []
+        try:
+            parsed = ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            # Graceful fallback for a single, non-serialized value.
+            return [text]
+        if isinstance(parsed, dict):
+            return [str(item) for item in parsed.keys()]
+        if isinstance(parsed, (list, tuple, set)):
+            return [str(item) for item in parsed]
+        return [str(parsed)]
+
+    def rows_from_mapping(mapping: Any) -> list[dict[str, Any]]:
+        """
+        Convert a community mapping to normalized membership rows.
+
+        Parameters
+        ----------
+        mapping : Any
+            Expected ``community -> members`` mapping.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            Rows containing normalized ``Node`` and ``Community`` values.
+        """
+        rows: list[dict[str, Any]] = []
+        if not isinstance(mapping, dict):
+            return rows
+        for community_id, members_value in mapping.items():
+            for member in parse_members(members_value):
+                if member in known_node_ids:
+                    rows.append({"Node": member, "Community": community_id})
+                    continue
+                for node_id in label_to_nodes.get(member, []):
+                    rows.append({"Node": node_id, "Community": community_id})
+        return rows
+
+    path = output_dir / "dpg_communities.csv"
+    csv_columns: list[str] = []
+    csv_sections: list[str] = []
+    if path.exists():
+        raw = pd.read_csv(path, dtype=str, keep_default_na=False)
+        csv_columns = [str(column) for column in raw.columns]
+
+        # Current DPG export: Section, Key, Value.
+        section_col = _find_column(csv_columns, ("section",))
+        key_col = _find_column(csv_columns, ("key",))
+        value_col = _find_column(csv_columns, ("value",))
+        if section_col and key_col and value_col:
+            section_values = raw[section_col].astype(str).str.strip()
+            csv_sections = sorted(section_values.unique().tolist())
+            cluster_rows = raw[section_values.str.casefold() == "clusters".casefold()]
+            rows: list[dict[str, Any]] = []
+            for _, row in cluster_rows.iterrows():
+                community_id = str(row[key_col]).strip()
+                for member in parse_members(row[value_col]):
+                    if member in known_node_ids:
+                        rows.append({"Node": member, "Community": community_id})
+                        continue
+                    for node_id in label_to_nodes.get(member, []):
+                        rows.append({"Node": node_id, "Community": community_id})
+            if rows:
+                return pd.DataFrame(rows).drop_duplicates()
+
+        # Backwards-compatible two-column membership export.
+        node_col = _find_column(
+            csv_columns,
+            ("node", "node_id", "id", "vertex", "predicate_id"),
+        )
+        community_col = _find_column(
+            csv_columns,
+            ("community", "community_id", "cluster", "cluster_id", "group"),
+        )
+        if node_col and community_col:
+            result = raw[[node_col, community_col]].copy()
+            result.columns = ["Node", "Community"]
+            result["Node"] = result["Node"].astype(str)
+            return result.drop_duplicates()
+
+    communities = getattr(explanation, "communities", None)
+    rows: list[dict[str, Any]] = []
+    if isinstance(communities, dict):
+        # Current DPG in-memory format.
+        clusters = communities.get("Clusters")
+        if clusters is not None:
+            rows = rows_from_mapping(clusters)
+        else:
+            # Older direct ``community -> members`` format.
+            rows = rows_from_mapping(communities)
+    elif isinstance(communities, (list, tuple)):
+        for community_id, members in enumerate(communities):
+            for member in parse_members(members):
+                if member in known_node_ids:
+                    rows.append({"Node": member, "Community": community_id})
+                    continue
+                for node_id in label_to_nodes.get(member, []):
+                    rows.append({"Node": node_id, "Community": community_id})
+
+    if not rows:
+        details = f"CSV columns={csv_columns}"
+        if csv_sections:
+            details += f", sections={csv_sections}"
+        raise ValueError(
+            "Could not normalize DPG communities. "
+            f"{details}. Expected current DPG long format "
+            "(Section, Key, Value) with a Clusters section, or a two-column "
+            "node/community membership table."
+        )
+    return pd.DataFrame(rows).drop_duplicates()
+
+
+def _community_display_label(position: int, dominant: str) -> str:
+    """
+    Build a reader-friendly community label.
+
+    Parameters
+    ----------
+    position : int
+        One-based display position of the community.
+    dominant : str
+        Dominant association label such as ``SAFE``, ``RISKY``, ``MIXED``, or
+        ``UNCONNECTED``.
+
+    Returns
+    -------
+    str
+        Human-readable label used in reports and plots.
+    """
+    status = {
+        "SAFE": "SAFE-dominant",
+        "RISKY": "RISKY-dominant",
+        "MIXED": "mixed",
+        "UNCONNECTED": "unconnected",
+    }.get(str(dominant).upper(), str(dominant).lower())
+    return f"Community {position} — {status}"
+
+
+def _top_predicate_text(
+    community_nodes: pd.DataFrame,
+    metric_column: str,
+    limit: int,
+) -> str:
+    """
+    Build a compact list of representative predicates.
+
+    Parameters
+    ----------
+    community_nodes : pandas.DataFrame
+        Predicate nodes belonging to one community.
+    metric_column : str
+        Node metric used for ranking.
+    limit : int
+        Maximum number of predicates to include.
+
+    Returns
+    -------
+    str
+        Semicolon-separated predicate labels, or an empty string when the
+        requested metric is unavailable.
+    """
+    if metric_column not in community_nodes.columns or community_nodes.empty:
+        return ""
+    ranked = community_nodes.copy()
+    ranked[metric_column] = pd.to_numeric(
+        ranked[metric_column], errors="coerce"
+    ).fillna(0.0)
+    ranked = ranked.sort_values(
+        [metric_column, "Label"], ascending=[False, True]
+    )
+    return "; ".join(ranked.head(limit)["Label"].astype(str).tolist())
+
+
+def build_community_class_tables(
+    node_metrics: pd.DataFrame,
+    edge_metrics: pd.DataFrame,
+    membership: pd.DataFrame,
+    mixed_margin: float,
+    top_predicates: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Aggregate DPG communities and estimate their class association.
+
+    Association is descriptive, not causal. It is computed from the total
+    weight of direct outgoing edges from predicates in each community to the
+    SAFE and RISKY class leaves.
+
+    Parameters
+    ----------
+    node_metrics : pandas.DataFrame
+        DPG node metrics, including node identifiers and labels.
+    edge_metrics : pandas.DataFrame
+        DPG edge metrics, including source, target, and optional weights.
+    membership : pandas.DataFrame
+        Normalized ``Node, Community`` membership table.
+    mixed_margin : float
+        Maximum absolute SAFE/RISKY score difference classified as ``MIXED``.
+    top_predicates : int
+        Number of representative predicates stored for each metric.
+
+    Returns
+    -------
+    tuple[pandas.DataFrame, pandas.DataFrame]
+        Community summary table and per-predicate community table.
+
+    Raises
+    ------
+    ValueError
+        If the configuration is invalid or no predicate nodes can be matched
+        to communities.
+    """
+    if not 0.0 <= mixed_margin <= 1.0:
+        raise ValueError("--community-mixed-margin must be between 0 and 1.")
+    if top_predicates <= 0:
+        raise ValueError("--community-top-predicates must be positive.")
+
+    nodes = node_metrics.copy()
+    nodes["Node"] = nodes["Node"].astype(str)
+    nodes["Label"] = nodes["Label"].astype(str)
+    membership = membership.copy()
+    membership["Node"] = membership["Node"].astype(str)
+
+    predicate_nodes = nodes[~nodes["Label"].map(is_class_node_label)].copy()
+    class_nodes = nodes[nodes["Label"].map(is_class_node_label)].copy()
+    joined = membership.merge(predicate_nodes, on="Node", how="inner")
+    if joined.empty:
+        raise ValueError("No predicate nodes could be matched to DPG communities.")
+
+    edges = edge_metrics.copy()
+    edges["Source_id"] = edges["Source_id"].astype(str)
+    edges["Target_id"] = edges["Target_id"].astype(str)
+    if "Weight" not in edges.columns:
+        edges["Weight"] = 1.0
+    edges["Weight"] = pd.to_numeric(edges["Weight"], errors="coerce").fillna(0.0)
+
+    class_map = dict(zip(class_nodes["Node"], class_nodes["Label"]))
+    class_edges = edges[edges["Target_id"].isin(class_map)].copy()
+    class_edges["ClassLabel"] = class_edges["Target_id"].map(class_map)
+    class_edges = class_edges.merge(
+        membership.rename(columns={"Node": "Source_id"}),
+        on="Source_id",
+        how="inner",
+    )
+
+    predicate_rows: list[dict[str, Any]] = []
+    summary_rows: list[dict[str, Any]] = []
+    for community_id, group in joined.groupby("Community", sort=True):
+        group = group.drop_duplicates(subset=["Node"])
+        community_edges = class_edges[class_edges["Community"] == community_id]
+        safe_weight = float(
+            community_edges.loc[
+                community_edges["ClassLabel"].str.upper().str.contains("SAFE"),
+                "Weight",
+            ].sum()
+        )
+        risky_weight = float(
+            community_edges.loc[
+                community_edges["ClassLabel"].str.upper().str.contains("RISKY"),
+                "Weight",
+            ].sum()
+        )
+        total = safe_weight + risky_weight
+        safe_score = safe_weight / total if total else 0.0
+        risky_score = risky_weight / total if total else 0.0
+        if total == 0:
+            dominant = "UNCONNECTED"
+        elif abs(safe_score - risky_score) <= mixed_margin:
+            dominant = "MIXED"
+        elif safe_score > risky_score:
+            dominant = "SAFE"
+        else:
+            dominant = "RISKY"
+
+        top_betweenness = _top_predicate_text(
+            group, "Betweenness centrality", top_predicates
+        )
+        top_local = _top_predicate_text(
+            group, "Local reaching centrality", top_predicates
+        )
+        top_degree = _top_predicate_text(group, "Degree", top_predicates)
+
+        summary_rows.append(
+            {
+                "Community": community_id,
+                "Predicate count": len(group),
+                "SAFE edge weight": safe_weight,
+                "RISKY edge weight": risky_weight,
+                "SAFE association score": safe_score,
+                "RISKY association score": risky_score,
+                "Dominant class": dominant,
+                "Top by betweenness": top_betweenness,
+                "Top by local reaching": top_local,
+                "Top by degree": top_degree,
+            }
+        )
+
+        for _, row in group.iterrows():
+            predicate_rows.append(
+                {
+                    "Community": community_id,
+                    "Node": row["Node"],
+                    "Label": row["Label"],
+                    "Degree": row.get("Degree", 0.0),
+                    "Betweenness centrality": row.get("Betweenness centrality", 0.0),
+                    "Local reaching centrality": row.get("Local reaching centrality", 0.0),
+                }
+            )
+
+    summary = pd.DataFrame(summary_rows).sort_values(
+        ["Dominant class", "Predicate count", "Community"],
+        ascending=[True, False, True],
+    ).reset_index(drop=True)
+    summary.insert(
+        1,
+        "Display label",
+        [
+            _community_display_label(position, dominant)
+            for position, dominant in enumerate(summary["Dominant class"], start=1)
+        ],
+    )
+    predicates = pd.DataFrame(predicate_rows).sort_values(
+        ["Community", "Betweenness centrality"], ascending=[True, False]
+    )
+    return summary, predicates
+
+
+def write_community_summary_text(path: Path, summary: pd.DataFrame) -> Path:
+    """
+    Write a readable class-aware community report.
+
+    Parameters
+    ----------
+    path : Path
+        Output text path.
+    summary : pandas.DataFrame
+        Community summary generated by ``build_community_class_tables``.
+
+    Returns
+    -------
+    Path
+        Written output path.
+    """
+    lines = [
+        "SpecLens-PML DPG community analysis",
+        "====================================",
+        "",
+        "Class association is based on weighted direct edges from community",
+        "predicates to class leaves. It describes structural association and",
+        "must not be interpreted as causality.",
+        "",
+    ]
+    for _, row in summary.iterrows():
+        lines.extend(
+            [
+                str(row["Display label"]),
+                f"  DPG cluster: {row['Community']}",
+                f"  Predicates: {int(row['Predicate count'])}",
+                f"  Class association: SAFE {row['SAFE association score'] * 100:.1f}% | "
+                f"RISKY {row['RISKY association score'] * 100:.1f}%",
+                f"  SAFE edge weight: {row['SAFE edge weight']:.1f}",
+                f"  RISKY edge weight: {row['RISKY edge weight']:.1f}",
+                f"  Top betweenness: {row['Top by betweenness'] or 'n/a'}",
+                f"  Top local reaching: {row['Top by local reaching'] or 'n/a'}",
+                f"  Top degree: {row['Top by degree'] or 'n/a'}",
+                "",
+            ]
+        )
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def write_community_dot(path: Path, summary: pd.DataFrame) -> Path:
+    """
+    Write a compact class-aware community graph in DOT format.
+
+    The graph contains one node per community and explicit ``Class SAFE`` and
+    ``Class RISKY`` leaves. Community-to-class edges show normalized
+    association percentages and aggregate weights.
+
+    Parameters
+    ----------
+    path : Path
+        DOT output path.
+    summary : pandas.DataFrame
+        Community summary generated by ``build_community_class_tables``.
+
+    Returns
+    -------
+    Path
+        Written DOT path.
+    """
+    styles = {
+        "SAFE": ("#dcfce7", "#166534"),
+        "RISKY": ("#fee2e2", "#991b1b"),
+        "MIXED": ("#fef3c7", "#92400e"),
+        "UNCONNECTED": ("#e5e7eb", "#4b5563"),
+    }
+    max_count = max(int(summary["Predicate count"].max()), 1)
+    lines = [
+        "digraph CommunityDPG {",
+        '  graph [rankdir=LR, bgcolor="white", overlap=false, splines=true];',
+        '  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10];',
+        '  edge [fontname="Helvetica", fontsize=9, color="#6b7280", arrowsize=0.7];',
+        '  labelloc="t";',
+        f"  label={dot_quote('SpecLens-PML DPG: class-aware community summary')};",
+        (
+            '  "Class SAFE" [shape="doubleoctagon", fillcolor="#bbf7d0", '
+            'color="#166534", penwidth=2.4];'
+        ),
+        (
+            '  "Class RISKY" [shape="doubleoctagon", fillcolor="#fecaca", '
+            'color="#991b1b", penwidth=2.4];'
+        ),
+        "",
+    ]
+    for _, row in summary.iterrows():
+        dominant = str(row["Dominant class"])
+        fill, border = styles.get(dominant, styles["UNCONNECTED"])
+        top = str(row["Top by betweenness"] or row["Top by local reaching"])
+        top_lines = top.split("; ")[:3]
+        safe_score = float(row["SAFE association score"])
+        risky_score = float(row["RISKY association score"])
+        display_label = str(row["Display label"])
+        label = (
+            f"{display_label}\n"
+            f"{int(row['Predicate count'])} predicates\n"
+            f"Class association: SAFE {safe_score * 100:.1f}% | "
+            f"RISKY {risky_score * 100:.1f}%\n"
+            f"Top predicates:\n"
+            + "\n".join(top_lines)
+        )
+        scale = 0.8 + 1.4 * int(row["Predicate count"]) / max_count
+        node_name = display_label
+        lines.append(
+            f"  {dot_quote(node_name)} [label={dot_quote(label)}, "
+            f"fillcolor={dot_quote(fill)}, color={dot_quote(border)}, "
+            f"width={scale:.2f}, height={scale * 0.55:.2f}];"
+        )
+        safe_weight = float(row["SAFE edge weight"])
+        risky_weight = float(row["RISKY edge weight"])
+        if safe_weight > 0:
+            pen = max(1.0, min(6.0, 1.0 + safe_weight / 50.0))
+            safe_edge_label = f"{safe_score * 100:.1f}% (w={safe_weight:.0f})"
+            lines.append(
+                f"  {dot_quote(node_name)} -> \"Class SAFE\" "
+                f"[label={dot_quote(safe_edge_label)}, penwidth={pen:.2f}];"
+            )
+        if risky_weight > 0:
+            pen = max(1.0, min(6.0, 1.0 + risky_weight / 50.0))
+            risky_edge_label = f"{risky_score * 100:.1f}% (w={risky_weight:.0f})"
+            lines.append(
+                f"  {dot_quote(node_name)} -> \"Class RISKY\" "
+                f"[label={dot_quote(risky_edge_label)}, penwidth={pen:.2f}];"
+            )
+    lines.append("}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def render_named_dot_file(
+    dot_path: Path,
+    output_dir: Path,
+    stem: str,
+    timeout_seconds: int,
+) -> list[Path]:
+    """
+    Render a DOT source to PNG and SVG.
+
+    Parameters
+    ----------
+    dot_path : Path
+        DOT source path.
+    output_dir : Path
+        Directory receiving rendered files.
+    stem : str
+        Output filename stem.
+    timeout_seconds : int
+        Maximum seconds allowed for each Graphviz invocation.
+
+    Returns
+    -------
+    list[Path]
+        Successfully rendered image paths.
+    """
+    dot_binary = shutil.which("dot")
+    if dot_binary is None:
+        print("Graphviz 'dot' command not found. Community DOT was saved only.")
+        return []
+    outputs: list[Path] = []
+    for fmt in ("png", "svg"):
+        path = output_dir / f"{stem}.{fmt}"
+        try:
+            subprocess.run(
+                [dot_binary, f"-T{fmt}", str(dot_path), "-o", str(path)],
+                check=True,
+                timeout=timeout_seconds,
+            )
+            outputs.append(path)
+        except subprocess.TimeoutExpired:
+            print(f"Community {fmt.upper()} rendering timed out after {timeout_seconds} seconds.")
+        except subprocess.CalledProcessError as exc:
+            print(f"Community {fmt.upper()} rendering failed: {exc}")
+    return outputs
+
+
+def save_community_class_analysis(
+    output_dir: Path,
+    explanation: Any,
+    mixed_margin: float,
+    top_predicates: int,
+    timeout_seconds: int,
+) -> list[Path]:
+    """
+    Generate class-aware community artifacts.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Directory receiving CSV, text, DOT, PNG, and SVG artifacts.
+    explanation : Any
+        In-memory DPG explanation.
+    mixed_margin : float
+        Maximum SAFE/RISKY score difference classified as ``MIXED``.
+    top_predicates : int
+        Number of representative predicates reported per metric.
+    timeout_seconds : int
+        Maximum seconds allowed for each Graphviz invocation.
+
+    Returns
+    -------
+    list[Path]
+        Written artifact paths.
+    """
+    print("\n=== Class-aware community analysis ===")
+    node_metrics, edge_metrics = load_metric_tables(output_dir, explanation)
+    membership = load_community_membership(output_dir, explanation)
+    summary, predicates = build_community_class_tables(
+        node_metrics,
+        edge_metrics,
+        membership,
+        mixed_margin,
+        top_predicates,
+    )
+
+    outputs: list[Path] = []
+    summary_path = output_dir / "community_class_summary.csv"
+    summary.to_csv(summary_path, index=False)
+    outputs.append(summary_path)
+
+    predicates_path = output_dir / "community_predicates.csv"
+    predicates.to_csv(predicates_path, index=False)
+    outputs.append(predicates_path)
+
+    text_path = write_community_summary_text(
+        output_dir / "community_class_summary.txt", summary
+    )
+    outputs.append(text_path)
+
+    dot_path = write_community_dot(
+        output_dir / "simplified_community_dpg.dot", summary
+    )
+    outputs.append(dot_path)
+    outputs.extend(
+        render_named_dot_file(
+            dot_path,
+            output_dir,
+            "simplified_community_dpg",
+            timeout_seconds,
+        )
+    )
+
+    counts = summary["Dominant class"].value_counts().to_dict()
+    print(f"Communities analyzed: {len(summary)}")
+    print(f"Dominant-class counts: {counts}")
     return outputs
 
 
@@ -1279,7 +2117,10 @@ def run_render_worker(
 
     if process.is_alive():
         stop_render_process(process)
-        print(f"\n{label} rendering timed out after {timeout_seconds} seconds. Skipping image output.")
+        print(
+            f"\n{label} rendering timed out after {timeout_seconds} seconds. "
+            "Skipping image output."
+        )
         return []
 
     if queue.empty():
@@ -1436,6 +2277,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SIMPLIFIED_MAX_EDGES,
         help="Maximum edges retained among selected simplified global nodes.",
     )
+    parser.add_argument(
+        "--render-community-summary",
+        action="store_true",
+        help="Generate class-aware community reports and a simplified community plot.",
+    )
+    parser.add_argument(
+        "--community-mixed-margin",
+        type=float,
+        default=DEFAULT_COMMUNITY_MIXED_MARGIN,
+        help="Maximum SAFE/RISKY score difference classified as MIXED.",
+    )
+    parser.add_argument(
+        "--community-top-predicates",
+        type=int,
+        default=DEFAULT_COMMUNITY_TOP_PREDICATES,
+        help="Number of representative predicates shown per community.",
+    )
 
     return parser
 
@@ -1453,12 +2311,40 @@ def main(
     top_k_nodes: int = DEFAULT_SIMPLIFIED_TOP_K_NODES,
     node_metric: str = DEFAULT_SIMPLIFIED_NODE_METRIC,
     max_edges: int = DEFAULT_SIMPLIFIED_MAX_EDGES,
+    render_community_summary: bool = False,
+    community_mixed_margin: float = DEFAULT_COMMUNITY_MIXED_MARGIN,
+    community_top_predicates: int = DEFAULT_COMMUNITY_TOP_PREDICATES,
 ) -> None:
     """
-    Run the first SpecLens-PML DPG experiment.
+    Run the SpecLens-PML DPG experiment.
 
     This is an offline explainability experiment over the Random Forest
     candidate model. It does not alter the active champion model.
+
+    Parameters
+    ----------
+    render : bool
+        Whether to attempt rendering of the complete DPG.
+    render_timeout : int
+        Maximum seconds allowed for each rendering operation.
+    max_render_nodes : int
+        Maximum number of nodes allowed for complete-graph rendering.
+    max_render_edges : int
+        Maximum number of edges allowed for complete-graph rendering.
+    render_simplified_global : bool
+        Whether to generate the simplified class-aware global graph.
+    top_k_nodes : int
+        Number of central predicate nodes retained in the simplified graph.
+    node_metric : str
+        Node metric used to rank predicates.
+    max_edges : int
+        Maximum number of edges retained in the simplified graph.
+    render_community_summary : bool
+        Whether to generate class-aware community reports and plots.
+    community_mixed_margin : float
+        Maximum SAFE/RISKY score difference classified as ``MIXED``.
+    community_top_predicates : int
+        Number of representative predicates shown per community.
     """
     print("=== SpecLens-PML DPG Experiment ===")
     print("Target model: models/forest.pkl")
@@ -1517,6 +2403,17 @@ def main(
                 )
             )
 
+        if render_community_summary:
+            rendered_outputs.extend(
+                save_community_class_analysis(
+                    OUTPUT_DIR,
+                    explanation,
+                    community_mixed_margin,
+                    community_top_predicates,
+                    render_timeout,
+                )
+            )
+
     except ImportError:
         sys.exit(1)
     except FileNotFoundError as exc:
@@ -1553,4 +2450,7 @@ if __name__ == "__main__":
         top_k_nodes=args.top_k_nodes,
         node_metric=args.node_metric,
         max_edges=args.max_edges,
+        render_community_summary=args.render_community_summary,
+        community_mixed_margin=args.community_mixed_margin,
+        community_top_predicates=args.community_top_predicates,
     )

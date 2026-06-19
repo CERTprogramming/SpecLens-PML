@@ -21,7 +21,8 @@ SpecLens-PML builds an end-to-end MLOps pipeline with feedback-driven retraining
 - Serves predictions as operational risk scores (`LOW`, `MEDIUM`, `HIGH`)
 - Runs inference on previously unseen code and collects feedback examples
 - Stores generated dataset artifacts under `data/processed/` to keep raw and derived data clearly separated
-- Exports DPG-ready model context for future structural explainability experiments
+- Exports DPG-ready model context for structural explainability experiments
+- Generates global, local, class-aware, and community-level DPG explanations for the Random Forest candidate
 - Supports a simplified continuous learning loop (`train → test → promote → unseen → feedback → retrain`)
 
 ---
@@ -197,6 +198,9 @@ spec-lens-pml/
 │   └── train.py            # Candidate model training (logistic / forest)
 ├── inference/
 │   └── predict.py          # Inference using the champion model
+├── experiments/
+│   ├── dpg_explain_forest.py  # DPG extraction, metrics, plots, and class-aware analyses
+│   └── dpg_outputs/            # Generated DPG artifacts (ignored by Git)
 ├── models/
 │   ├── logistic.pkl        # Generated candidate model artifact
 │   ├── forest.pkl          # Generated candidate model artifact
@@ -214,6 +218,7 @@ Notes:
   - `data/processed/datasets_test.csv`
 - The folder `data/_tmp_train/` is a runtime staging directory rebuilt automatically by `demo.py`
 - Model artifacts and processed datasets are generated runtime artifacts and should normally be ignored by Git
+- Generated DPG artifacts are written under `experiments/dpg_outputs/` and are ignored by Git
 - The raw data pools follow a simple numbering convention to make dataset provenance clearer:
   - `raw_train/`: examples such as `example001.py`, `example002.py`, ...
   - `raw_test/`: examples such as `example101.py`, `example102.py`, ...
@@ -284,37 +289,216 @@ These context files include:
 - training feature matrix
 - training labels
 
-The `forest_training_context.pkl` artifact is intended to support future
+The `forest_training_context.pkl` artifact supports
 Decision Predicate Graph (DPG) experiments on tree-based models.
 
 ---
 
-## First DPG Experiment
+## DPG Structural Explainability
 
-A first Decision Predicate Graph (DPG) experiment is available for the Random
-Forest candidate model. DPG is applied to `models/forest.pkl` because DPG
-requires a tree-based model; the operational champion promoted by the
-Continuous Training Trigger may still be logistic and is not changed by this
-experiment.
+SpecLens-PML includes an experimental Decision Predicate Graph (DPG) layer for
+the Random Forest candidate model. DPG is applied to `models/forest.pkl` because
+it requires a tree-based model. The operational champion promoted by the
+Continuous Training Trigger may still be Logistic Regression, and the DPG
+experiment does not modify the champion-selection or governance logic.
 
-Run the experiment with:
+The experiment uses:
+
+```text
+models/forest.pkl
+models/forest_training_context.pkl
+```
+
+The training context contains the feature names, training feature matrix, and
+training labels required to reconstruct and analyze the model's decision
+structure.
+
+### DPG prerequisites
+
+The DPG repository is expected as a sibling directory of SpecLens-PML:
+
+```text
+Dev/
+├── spec-lens-pml/
+└── DPG/
+```
+
+With the SpecLens-PML virtual environment active, install DPG in editable mode:
+
+```bash
+python3 -m pip install -e ../DPG
+```
+
+Graphviz is required only for DOT-to-PNG/SVG rendering. Check its availability
+with:
+
+```bash
+dot -V
+```
+
+### Generate the complete DPG artifacts
+
+Run the complete extraction and analysis with:
 
 ```bash
 python3 experiments/dpg_explain_forest.py
 ```
 
-Outputs are written to:
+This generates the complete graph data, node and edge metrics, community
+information, class boundaries, top predicates, and local explanation paths.
+
+The complete DPG can also be rendered explicitly:
+
+```bash
+python3 experiments/dpg_explain_forest.py --render
+```
+
+For large graphs, rendering may be skipped by the script's size guard or limited
+with a rendering timeout. The complete graph remains available through the CSV
+and text artifacts even when an image is not generated.
+
+### Generate a simplified global graph
+
+The complete DPG can be too dense for direct visual inspection. A simplified,
+class-aware global view can be generated with:
+
+```bash
+python3 experiments/dpg_explain_forest.py \
+  --render-simplified-global \
+  --top-k-nodes 15 \
+  --node-metric local_reaching \
+  --max-edges 25
+```
+
+The simplified visualization:
+
+- selects the most central decision predicates;
+- always includes the `Class SAFE` and `Class RISKY` leaves;
+- preserves weighted connections between selected predicates and class leaves;
+- adds bridge predicates when needed to keep class leaves connected;
+- generates DOT, PNG, and SVG files.
+
+The node-ranking metric can be selected from:
+
+```text
+betweenness
+degree
+local_reaching
+```
+
+For example, the same graph can be generated using betweenness centrality:
+
+```bash
+python3 experiments/dpg_explain_forest.py \
+  --render-simplified-global \
+  --top-k-nodes 15 \
+  --node-metric betweenness \
+  --max-edges 25
+```
+
+### Generate the class-aware community analysis
+
+Run the community-level analysis with:
+
+```bash
+python3 experiments/dpg_explain_forest.py \
+  --render-community-summary
+```
+
+For each DPG community, the experiment reports:
+
+- the community identifier;
+- the number of predicate nodes;
+- representative predicates;
+- aggregate connection weight toward `Class SAFE`;
+- aggregate connection weight toward `Class RISKY`;
+- normalized SAFE and RISKY association scores;
+- a dominant classification of `SAFE`, `RISKY`, `MIXED`, or `UNCONNECTED`.
+
+The class association is based on the weighted outgoing connections from
+predicates in each community to the class leaves. It is a structural association,
+not a causal claim about individual predicates.
+
+The margin used to identify mixed communities can be configured. For example:
+
+```bash
+python3 experiments/dpg_explain_forest.py \
+  --render-community-summary \
+  --community-mixed-margin 0.10
+```
+
+The community summary plot labels communities using readable names such as:
+
+```text
+Community 1 — RISKY-dominant
+Community 2 — SAFE-dominant
+```
+
+It also shows normalized class-association percentages together with the
+corresponding aggregate edge weights.
+
+### Generate both simplified visualizations
+
+The simplified global graph and the class-aware community summary can be
+generated in a single run:
+
+```bash
+python3 experiments/dpg_explain_forest.py \
+  --render-simplified-global \
+  --top-k-nodes 15 \
+  --node-metric local_reaching \
+  --max-edges 25 \
+  --render-community-summary
+```
+
+### Generated DPG outputs
+
+All generated artifacts are written to:
 
 ```text
 experiments/dpg_outputs/
 ```
 
-The full DPG is saved and analyzed computationally through CSV/text artifacts.
-For readable figures, use simplified or class-focused subgraphs, for example:
+Main complete-analysis outputs include:
 
-```bash
-python3 experiments/dpg_explain_forest.py --render-simplified-global
+```text
+global_summary.txt
+dpg_nodes.csv
+dpg_node_metrics.csv
+dpg_edge_metrics.csv
+dpg_communities.csv
+dpg_class_boundaries.json
+top_predicates.txt
+local_safe_paths.csv
+local_safe_summary.json
+local_risky_paths.csv
+local_risky_summary.json
 ```
+
+Simplified global visualization outputs include:
+
+```text
+simplified_global_dpg.dot
+simplified_global_dpg.png
+simplified_global_dpg.svg
+simplified_global_nodes.csv
+simplified_global_edges.csv
+```
+
+Class-aware community outputs include:
+
+```text
+community_class_summary.csv
+community_class_summary.txt
+community_predicates.csv
+simplified_community_dpg.dot
+simplified_community_dpg.png
+simplified_community_dpg.svg
+```
+
+Generated DPG outputs are runtime artifacts and are excluded from version
+control.
+
 
 ---
 
@@ -450,7 +634,7 @@ python pipeline/train.py data/processed/datasets_train.csv --model forest
 This trains two candidate model families:
 
 - Logistic Regression as baseline
-- Random Forest as challenger and tree-based model for future DPG analysis
+- Random Forest as challenger and tree-based model for DPG analysis
 
 Candidate artifacts are generated under:
 
@@ -671,7 +855,7 @@ held-out TEST set, and promotes a single champion artifact (`best_model.pkl`) th
 is then served for operational inference on new unseen Python programs via
 `inference/predict.py` and the Streamlit interface.
 
-The Random Forest candidate is also useful as a tree-based model for future
+The Random Forest candidate is also used as the tree-based model for
 Decision Predicate Graph analysis, even when the operational champion selected
 by the governance metric is a different model.
 
@@ -704,8 +888,8 @@ the door to a broader research and thesis-level evolution.
 
 Possible next steps include:
 
-- Integrating Decision Predicate Graphs (DPG) as a structural explainability layer
-  for tree-based risk models
+- Extending the existing Decision Predicate Graph (DPG) structural explainability
+  layer with additional class-aware, community-level, and local analyses
 - Using DPG to analyze global and local decision predicates behind risk predictions
 - Mapping DPG predicates to software-engineering concepts such as missing
   precondition coverage, state-sensitive contracts, contract complexity, mutation,
