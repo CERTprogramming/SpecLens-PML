@@ -22,7 +22,9 @@ SpecLens-PML builds an end-to-end MLOps pipeline with feedback-driven retraining
 - Runs inference on previously unseen code and collects feedback examples
 - Stores generated dataset artifacts under `data/processed/` to keep raw and derived data clearly separated
 - Exports DPG-ready model context for structural explainability experiments
-- Generates global, local, class-aware, and community-level DPG explanations for the Random Forest candidate
+- Generates global, local, class-aware, community-level, and concept-level DPG
+  explanations for the Random Forest candidate
+- Maps DPG predicates to software-engineering concepts for project-oriented interpretation reports
 - Supports a simplified continuous learning loop (`train → test → promote → unseen → feedback → retrain`)
 
 ---
@@ -199,7 +201,8 @@ spec-lens-pml/
 ├── inference/
 │   └── predict.py          # Inference using the champion model
 ├── experiments/
-│   ├── dpg_explain_forest.py  # DPG extraction, metrics, plots, and class-aware analyses
+│   ├── dpg_explain_forest.py   # DPG extraction, metrics, plots, and class-aware analyses
+│   ├── dpg_concept_analysis.py # Concept-level analysis of DPG communities and local paths
 │   └── dpg_outputs/            # Generated DPG artifacts (ignored by Git)
 ├── models/
 │   ├── logistic.pkl        # Generated candidate model artifact
@@ -437,10 +440,99 @@ Community 2 — SAFE-dominant
 It also shows normalized class-association percentages together with the
 corresponding aggregate edge weights.
 
+### Generate the concept-level community analysis
+
+After generating the DPG community artifacts, run the concept-level analysis:
+
+```bash
+python3 experiments/dpg_concept_analysis.py
+```
+
+This script maps DPG predicates to software-engineering concept families such as
+contract coverage, precondition complexity, postcondition complexity, pre-state
+reasoning, snapshot usage, indexing behavior, state mutation, interface
+complexity, and control-flow complexity.
+
+The analysis is computed from the complete DPG community and local-path artifacts,
+not from the simplified visualization. The simplified graph is only a readability
+view, while the concept-level analysis uses the full predicate set available in
+the DPG outputs.
+
+The mapping is deterministic and intentionally conservative:
+
+```text
+DPG predicate → feature → concept family → polarity → interpretation
+```
+
+For example:
+
+```text
+has_subscript > 0.5 → INDEX_ACCESS → present
+n_requires <= 0.5  → PRECONDITION_COVERAGE → none_or_low
+has_snapshot > 0.5 → SNAPSHOT_USAGE → present
+```
+
+The generated interpretation is descriptive. It highlights structural
+associations learned by the model and should be checked against local SAFE and
+RISKY paths before drawing conclusions about concrete decision behavior.
+
+### Run the experimental DPG analysis pipeline
+
+A complete experimental DPG analysis can be run with:
+
+```bash
+python3 experiments/dpg_explain_forest.py \
+  --render-simplified-global \
+  --top-k-nodes 15 \
+  --node-metric local_reaching \
+  --max-edges 25 \
+  --render-community-summary
+
+python3 experiments/dpg_concept_analysis.py
+```
+
+This produces the complete DPG metrics, simplified visualizations, class-aware
+community analysis, concept-level summaries, and a compact project-oriented
+community interpretation report.
+
+### Run a full clean demo and DPG analysis
+
+To validate the whole project from a clean runtime state, first reset generated
+artifacts and execute the core demo pipeline:
+
+```bash
+./reset.sh
+python3 demo.py
+```
+
+Then run the experimental DPG analysis pipeline:
+
+```bash
+python3 experiments/dpg_explain_forest.py \
+  --render-simplified-global \
+  --top-k-nodes 15 \
+  --node-metric local_reaching \
+  --max-edges 25 \
+  --render-community-summary
+
+python3 experiments/dpg_concept_analysis.py
+```
+
+The full clean run is therefore:
+
+```text
+reset → demo pipeline → DPG structural analysis → concept-level interpretation
+```
+
+`reset.sh` removes runtime artifacts such as generated datasets, model files,
+temporary training folders, and feedback examples. Feedback files under
+`data/raw_feedback/` are generated during the demo and should not be committed,
+except for an optional `.gitkeep` file used to preserve the empty directory.
+
 ### Generate both simplified visualizations
 
-The simplified global graph and the class-aware community summary can be
-generated in a single run:
+The simplified global graph and the class-aware community summary can also be
+generated without the concept-level step:
 
 ```bash
 python3 experiments/dpg_explain_forest.py \
@@ -494,6 +586,19 @@ community_predicates.csv
 simplified_community_dpg.dot
 simplified_community_dpg.png
 simplified_community_dpg.svg
+```
+
+Concept-level community outputs include:
+
+```text
+community_concept_predicates.csv
+community_concept_summary.csv
+community_concept_summary.txt
+community_interpretation_summary.txt
+concept_taxonomy.csv
+local_path_concept_predicates.csv
+local_path_concept_summary.csv
+local_path_concept_summary.txt
 ```
 
 Generated DPG outputs are runtime artifacts and are excluded from version
@@ -881,10 +986,10 @@ state-of-the-art model performance.
 
 ---
 
-## Next Steps and Potential Thesis Extension
+## Next Steps and Research Extensions
 
 SpecLens-PML is intentionally designed as a prototype, but its architecture opens
-the door to a broader research and thesis-level evolution.
+the door to broader research-oriented extensions.
 
 Possible next steps include:
 
@@ -904,6 +1009,6 @@ Possible next steps include:
 - Adopting fuller MLOps tooling, such as experiment tracking, model lineage, and
   dashboard-based governance
 
-With these extensions, SpecLens-PML could serve as a strong foundation for a
-thesis focused on explainable and controllable risk assessment of Python
-functions with lightweight contracts.
+With these extensions, SpecLens-PML could serve as a strong foundation for
+explainable and controllable risk assessment of Python functions with
+lightweight contracts.
