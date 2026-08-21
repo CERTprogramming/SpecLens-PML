@@ -9,11 +9,14 @@ Given a Python source file annotated with PML contracts, it:
 - Parses all contract-annotated functions
 - Extracts the same feature schema used during training
 - Predicts the probability of being RISKY
-- Maps probabilities into operational risk levels:
+- Preserves the original LOW / MEDIUM / HIGH model-supported decision
+- Maps features into deterministic software-engineering concept states
+- Applies human-defined concept-aware control policies
+- Keeps the model score, original decision, policy intervention, and controlled
+  decision separate and observable
+- Appends policy interventions to the governance audit log
 
-    LOW / MEDIUM / HIGH
-
-This module represents the serving component of the pipeline.
+The trained model and its probability are never modified by the control layer.
 """
 
 from pathlib import Path
@@ -27,6 +30,13 @@ import joblib
 import pandas as pd
 import yaml
 
+from governance.concepts import extract_concept_states
+from governance.control import (
+    append_control_event,
+    apply_control,
+    load_policies,
+    policy_concepts,
+)
 from pipeline.features import extract_features, get_model_feature_names, make_feature_matrix
 from pml.parser import parse_file
 
@@ -44,16 +54,19 @@ def load_thresholds() -> tuple[float, float]:
     - ``risk_thresholds.low``
     - ``risk_thresholds.medium``
 
+    The ``medium`` value is the baseline HIGH-risk boundary: scores below it
+    are MEDIUM, while scores at or above it are HIGH.
+
     Returns
     -------
     tuple[float, float]
         A tuple ``(low, medium)`` used to map probability scores
         into operational levels.
     """
-    config = yaml.safe_load(Path("config.yaml").read_text())
+    config = yaml.safe_load((ROOT / "config.yaml").read_text())
 
-    low = config["risk_thresholds"]["low"]
-    medium = config["risk_thresholds"]["medium"]
+    low = float(config["risk_thresholds"]["low"])
+    medium = float(config["risk_thresholds"]["medium"])
 
     return low, medium
 
@@ -63,23 +76,7 @@ def load_thresholds() -> tuple[float, float]:
 # ---------------------------------------------------------------------------
 
 def risk_level(score: float, low: float, medium: float) -> str:
-    """
-    Convert a probability score into an operational risk category.
-
-    Parameters
-    ----------
-    score : float
-        Predicted probability of the function being RISKY.
-    low : float
-        Threshold below which the function is considered LOW risk.
-    medium : float
-        Threshold below which the function is considered MEDIUM risk.
-
-    Returns
-    -------
-    str
-        One of: ``"LOW"``, ``"MEDIUM"``, or ``"HIGH"``.
-    """
+    """Convert a probability score into LOW, MEDIUM, or HIGH risk."""
     if score < low:
         return "LOW"
     elif score < medium:
@@ -93,32 +90,20 @@ def risk_level(score: float, low: float, medium: float) -> str:
 # ---------------------------------------------------------------------------
 
 def predict_file(path: Path) -> None:
-    """
-    Run inference on all contract-annotated functions in a Python file.
-
-    The function:
-
-    - Loads the promoted champion model (`best_model.pkl`)
-    - Parses the input file using the PML parser
-    - Extracts feature vectors
-    - Predicts risk probabilities
-    - Prints a per-function risk report
-
-    Parameters
-    ----------
-    path : Path
-        Path to the Python source file to analyze.
-    """
+    """Run baseline inference followed by concept-aware operational control."""
     print(f"Analysis of {path.name}")
     print("(active model: best_model.pkl)\n")
 
-    # Load thresholds from config.yaml
+    # Baseline thresholds and human-defined control policy configuration are
+    # intentionally loaded from separate files.
     low_t, med_t = load_thresholds()
+    policy_document = load_policies()
+    relevant_concepts = policy_concepts(policy_document)
 
-    # Load champion model artifact
-    model = joblib.load("models/best_model.pkl")
+    # Load champion model artifact.
+    model = joblib.load(ROOT / "models" / "best_model.pkl")
 
-    # Parse contract-annotated functions from file
+    # Parse contract-annotated functions from file.
     functions = parse_file(path)
 
     for f in functions:
@@ -128,16 +113,66 @@ def predict_file(path: Path) -> None:
             pd.DataFrame([feats]),
             get_model_feature_names(model),
         )
-        score = model.predict_proba(X)[0][1]
+        score = float(model.predict_proba(X)[0][1])
 
-        level = risk_level(score, low_t, med_t)
+        # 1) Preserve the original model-supported operational decision.
+        original_level = risk_level(score, low_t, med_t)
+
+        # 2) Translate only policy-relevant features into shared concept states.
+        concept_states = extract_concept_states(feats, relevant_concepts)
+
+        # 3) Apply human-defined control policy without changing ``score``.
+        control = apply_control(
+            score=score,
+            original_level=original_level,
+            concept_states=concept_states,
+            feature_values=feats,
+            policy_document=policy_document,
+            low_threshold=low_t,
+            high_threshold=med_t,
+        )
+
+        # 4) Record actual policy interventions in an append-only audit log.
+        event_id = append_control_event(
+            control,
+            function_name=f["name"],
+            source_file=path.name,
+            line=f.get("line"),
+            concept_states=concept_states,
+        )
 
         print(f"- {f['name']} (line {f['line']})")
         print(f"  requires: {f['requires']}")
         print(f"  ensures:  {f['ensures']}")
         print(f"  invariant:{f['invariant']}")
         print(f"  snapshots:{f.get('snapshots', {})}")
-        print(f"  → risk score: {score:.3f} [{level}]\n")
+        print(f"  Model risk score: {score:.3f}")
+        print(f"  Original risk level: {original_level}")
+
+        print("  Relevant concepts:")
+        if concept_states:
+            for concept, state in concept_states.items():
+                print(f"    {concept}: {state}")
+        else:
+            print("    none")
+
+        print("  Applied policies:")
+        if control.matched_policies:
+            for policy in control.matched_policies:
+                print(f"    {policy.policy_id} - {policy.name}")
+                for evidence in policy.evidence:
+                    print(f"      evidence: {evidence}")
+                if policy.rationale:
+                    print(f"      rationale: {policy.rationale}")
+        else:
+            print("    none")
+
+        print(f"  Original HIGH threshold: {control.original_high_threshold:.3f}")
+        print(f"  Controlled HIGH threshold: {control.controlled_high_threshold:.3f}")
+        print(f"  Controlled risk level: {control.controlled_level}")
+        print(f"  Decision changed: {'yes' if control.decision_changed else 'no'}")
+        print(f"  Human review: {'required' if control.review_required else 'not required'}")
+        print(f"  Governance event: {event_id or 'none'}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -145,8 +180,6 @@ def predict_file(path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    import sys
-
     if len(sys.argv) != 2:
         print("Usage: python inference/predict.py <file.py>")
         sys.exit(1)

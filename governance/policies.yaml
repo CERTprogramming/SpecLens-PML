@@ -1,0 +1,62 @@
+# SpecLens-PML concept-aware operational control policies.
+#
+# Policies are human-defined governance rules. They do not alter the trained
+# model or its probability score; they can only make the operational HIGH-risk
+# threshold more conservative.
+#
+# P002 and P003 were selected using DPG structural evidence and the internal
+# TRAIN-derived validation split. The final TEST set must not be used to tune
+# their conditions or threshold.
+
+version: 2
+
+policies:
+  - id: P001
+    name: indexed_access_without_precondition
+    enabled: true
+    when:
+      INDEX_ACCESS: present
+      MISSING_PRECONDITION_COVERAGE: present
+    high_risk_threshold: 0.50
+    require_review: true
+    rationale: >
+      Indexed access without explicit precondition coverage motivates a more
+      conservative operational risk assessment.
+
+  - id: P002
+    name: limited_contract_coverage_with_complex_postcondition
+    enabled: true
+    when:
+      - concept: CONTRACT_COVERAGE
+        feature: n_contracts_total
+        operator: "<="
+        value: 2.5
+      - concept: POSTCONDITION_COMPLEXITY
+        feature: ensures_complexity
+        operator: ">"
+        value: 9.5
+    high_risk_threshold: 0.50
+    require_review: true
+    rationale: >
+      DPG evidence identifies combinations of limited overall contract coverage
+      and non-trivial postcondition complexity in RISKY-oriented decision
+      regions, motivating a more conservative operational threshold.
+
+  - id: P003
+    name: larger_function_with_complex_postcondition
+    enabled: true
+    when:
+      - concept: STRUCTURAL_SIZE
+        feature: n_loc
+        operator: ">"
+        value: 6.5
+      - concept: POSTCONDITION_COMPLEXITY
+        feature: ensures_complexity
+        operator: ">"
+        value: 9.5
+    high_risk_threshold: 0.50
+    require_review: true
+    rationale: >
+      DPG evidence identifies combinations of greater structural size and
+      non-trivial postcondition complexity in RISKY-oriented decision regions,
+      motivating a more conservative operational threshold.

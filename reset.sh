@@ -52,6 +52,10 @@ rm -f models/logistic.pkl
 rm -f models/forest.pkl
 rm -f models/best_model.pkl
 
+# Governance/control runtime artifacts
+rm -f data/governance/control_events.jsonl
+rm -rf experiments/control_outputs
+
 echo ""
 echo "Reset completed successfully."
 echo "You can now run a clean demo with:"

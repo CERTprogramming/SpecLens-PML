@@ -18,6 +18,7 @@ from typing import Any, Optional
 import argparse
 import math
 import re
+import sys
 import textwrap
 
 import pandas as pd
@@ -28,6 +29,11 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from governance.concepts import CONCEPT_ORDER, CONCEPT_RULES, ConceptRule
+
 DEFAULT_OUTPUT_DIR = ROOT / "experiments" / "dpg_outputs"
 
 DEFAULT_TOP_CONCEPTS = 8
@@ -42,236 +48,12 @@ PREDICATE_RE = re.compile(
 
 
 # ---------------------------------------------------------------------------
-# Concept taxonomy
+# Shared concept taxonomy
 # ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class ConceptRule:
-    """
-    Deterministic mapping from a feature name to a concept family.
-
-    Parameters
-    ----------
-    concept : str
-        Software-engineering concept family.
-    description : str
-        Human-readable explanation of the concept.
-    feature_kind : str
-        Feature type used to interpret thresholds. Supported values are
-        ``boolean``, ``count``, ``complexity`` and ``numeric``.
-    """
-
-    concept: str
-    description: str
-    feature_kind: str = "numeric"
-
-
-CONCEPT_RULES: dict[str, ConceptRule] = {
-    # Function surface and structure.
-    "n_params": ConceptRule(
-        "INTERFACE_COMPLEXITY",
-        "size of the function interface",
-        "count",
-    ),
-    "has_self": ConceptRule(
-        "METHOD_CONTEXT",
-        "method-oriented context through self",
-        "boolean",
-    ),
-    "n_loc": ConceptRule(
-        "STRUCTURAL_SIZE",
-        "function size measured in lines of code",
-        "count",
-    ),
-    "n_branches": ConceptRule(
-        "CONTROL_FLOW_COMPLEXITY",
-        "branching structure in the function body",
-        "count",
-    ),
-    "n_loops": ConceptRule(
-        "CONTROL_FLOW_COMPLEXITY",
-        "looping structure in the function body",
-        "count",
-    ),
-    "n_returns": ConceptRule(
-        "RETURN_STRUCTURE",
-        "number of explicit return points",
-        "count",
-    ),
-    "has_subscript": ConceptRule(
-        "INDEX_ACCESS",
-        "indexed or subscript-based access",
-        "boolean",
-    ),
-    "has_division": ConceptRule(
-        "ARITHMETIC_RISK",
-        "division or arithmetic operation requiring safety conditions",
-        "boolean",
-    ),
-    "has_mutation": ConceptRule(
-        "STATE_MUTATION",
-        "mutation of state or mutable values",
-        "boolean",
-    ),
-    "has_method_call": ConceptRule(
-        "CALL_BEHAVIOR",
-        "method-call behavior inside the function",
-        "boolean",
-    ),
-    "has_other": ConceptRule(
-        "OTHER_OPERATION",
-        "residual structural behavior not captured by the main AST indicators",
-        "boolean",
-    ),
-    # Contract coverage.
-    "n_requires": ConceptRule(
-        "PRECONDITION_COVERAGE",
-        "amount of explicit precondition coverage",
-        "count",
-    ),
-    "n_ensures": ConceptRule(
-        "POSTCONDITION_COVERAGE",
-        "amount of explicit postcondition coverage",
-        "count",
-    ),
-    "n_invariants": ConceptRule(
-        "INVARIANT_COVERAGE",
-        "amount of invariant coverage",
-        "count",
-    ),
-    "n_contracts_total": ConceptRule(
-        "CONTRACT_COVERAGE",
-        "overall amount of lightweight contract specification",
-        "count",
-    ),
-    "has_missing_requires": ConceptRule(
-        "MISSING_PRECONDITION_COVERAGE",
-        "absence of explicit preconditions where they may be expected",
-        "boolean",
-    ),
-    "has_stateful_contract": ConceptRule(
-        "STATEFUL_CONTRACT",
-        "contract referring to stateful behavior",
-        "boolean",
-    ),
-    # Contract expression content.
-    "requires_has_cmp": ConceptRule(
-        "PRECONDITION_COMPARISON",
-        "comparison expressions in preconditions",
-        "boolean",
-    ),
-    "ensures_has_cmp": ConceptRule(
-        "POSTCONDITION_COMPARISON",
-        "comparison expressions in postconditions",
-        "boolean",
-    ),
-    "invariants_has_cmp": ConceptRule(
-        "INVARIANT_COMPARISON",
-        "comparison expressions in invariants",
-        "boolean",
-    ),
-    "requires_has_arith": ConceptRule(
-        "PRECONDITION_ARITHMETIC",
-        "arithmetic expressions in preconditions",
-        "boolean",
-    ),
-    "ensures_has_arith": ConceptRule(
-        "POSTCONDITION_ARITHMETIC",
-        "arithmetic expressions in postconditions",
-        "boolean",
-    ),
-    "invariants_has_arith": ConceptRule(
-        "INVARIANT_ARITHMETIC",
-        "arithmetic expressions in invariants",
-        "boolean",
-    ),
-    "requires_complexity": ConceptRule(
-        "PRECONDITION_COMPLEXITY",
-        "syntactic complexity of preconditions",
-        "complexity",
-    ),
-    "ensures_complexity": ConceptRule(
-        "POSTCONDITION_COMPLEXITY",
-        "syntactic complexity of postconditions",
-        "complexity",
-    ),
-    "invariants_complexity": ConceptRule(
-        "INVARIANT_COMPLEXITY",
-        "syntactic complexity of invariants",
-        "complexity",
-    ),
-    "contract_complexity_total": ConceptRule(
-        "CONTRACT_COMPLEXITY",
-        "overall syntactic complexity of contract expressions",
-        "complexity",
-    ),
-    # Pre-state and snapshot-aware reasoning.
-    "n_old_refs": ConceptRule(
-        "PRESTATE_REASONING",
-        "explicit references to values before execution through old(...)",
-        "count",
-    ),
-    "ensures_has_old": ConceptRule(
-        "PRESTATE_REASONING",
-        "postconditions referring to the pre-state through old(...)",
-        "boolean",
-    ),
-    "invariants_has_old": ConceptRule(
-        "PRESTATE_REASONING",
-        "invariants referring to the pre-state through old(...)",
-        "boolean",
-    ),
-    "has_prestate_reference": ConceptRule(
-        "PRESTATE_REASONING",
-        "presence of pre-state-aware contract reasoning",
-        "boolean",
-    ),
-    "contract_has_prestate_reference": ConceptRule(
-        "PRESTATE_REASONING",
-        "contract-level use of pre-state references",
-        "boolean",
-    ),
-    "n_snapshots": ConceptRule(
-        "SNAPSHOT_USAGE",
-        "number of named pre-state snapshots",
-        "count",
-    ),
-    "has_snapshot": ConceptRule(
-        "SNAPSHOT_USAGE",
-        "presence of named pre-state snapshots",
-        "boolean",
-    ),
-    "ensures_uses_snapshot": ConceptRule(
-        "SNAPSHOT_BASED_POSTCONDITION",
-        "postconditions using named pre-state snapshots",
-        "boolean",
-    ),
-    "snapshot_complexity": ConceptRule(
-        "PRESTATE_CONTRACT_COMPLEXITY",
-        "syntactic complexity of snapshot expressions",
-        "complexity",
-    ),
-}
-
-CONCEPT_ORDER = [
-    "MISSING_PRECONDITION_COVERAGE",
-    "PRECONDITION_COVERAGE",
-    "POSTCONDITION_COVERAGE",
-    "CONTRACT_COVERAGE",
-    "INDEX_ACCESS",
-    "ARITHMETIC_RISK",
-    "STATE_MUTATION",
-    "PRESTATE_REASONING",
-    "SNAPSHOT_USAGE",
-    "SNAPSHOT_BASED_POSTCONDITION",
-    "PRESTATE_CONTRACT_COMPLEXITY",
-    "PRECONDITION_COMPLEXITY",
-    "POSTCONDITION_COMPLEXITY",
-    "CONTRACT_COMPLEXITY",
-    "CONTROL_FLOW_COMPLEXITY",
-    "STRUCTURAL_SIZE",
-    "INTERFACE_COMPLEXITY",
-]
+#
+# The deterministic feature -> software-engineering concept mapping lives in
+# governance/concepts.py so the DPG analysis and operational control layer use
+# exactly the same taxonomy.  Predicate parsing remains local to this experiment.
 
 
 # ---------------------------------------------------------------------------

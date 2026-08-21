@@ -8,7 +8,7 @@ This script runs a full end-to-end MLOps workflow:
 3. Train candidate models (logistic + forest)
 4. Promote the best candidate via Continuous Training Trigger
 5. Run inference on UNSEEN examples
-6. Collect high-risk unseen files into raw_feedback/
+6. Collect original-model HIGH-risk unseen files into raw_feedback/
 
 This implements a simplified continuous learning loop:
 
@@ -213,15 +213,18 @@ def main() -> None:
 
         print(result.stdout)
 
-        if "[HIGH]" in result.stdout:
+        # Feedback must depend only on the original model-supported decision.
+        # A policy-controlled HIGH is deliberately excluded so that human risk
+        # preferences are not silently absorbed into future model training.
+        if "Original risk level: HIGH" in result.stdout:
             target = feedback_dir / py_file.name
 
             if not target.exists():
-                print("High-risk function detected.")
+                print("Original model HIGH-risk function detected.")
                 print("Adding example to feedback dataset.")
                 shutil.copy(py_file, target)
             else:
-                print("High-risk example already present in feedback pool.")
+                print("Original model HIGH-risk example already present in feedback pool.")
 
     print("\n=== Demo completed successfully ===")
     print(f"Processed datasets saved in: {processed_dir}")

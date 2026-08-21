@@ -16,7 +16,7 @@ SpecLens-PML builds an end-to-end MLOps pipeline with feedback-driven retraining
 - Treats code and specifications as structured data
 - Generates labeled datasets through dynamic execution and contract checking
 - Trains multiple candidate machine learning models automatically (baseline + challenger)
-- Evaluates candidates on a held-out TEST set, separate from training
+- Evaluates candidates on a separate TEST set that is not used to fit candidate models
 - Selects and promotes a champion model based on a safety-oriented metric
 - Serves predictions as operational risk scores (`LOW`, `MEDIUM`, `HIGH`)
 - Runs inference on previously unseen code and collects feedback examples
@@ -25,6 +25,10 @@ SpecLens-PML builds an end-to-end MLOps pipeline with feedback-driven retraining
 - Generates global, local, class-aware, community-level, and concept-level DPG
   explanations for the Random Forest candidate
 - Maps DPG predicates to software-engineering concepts for project-oriented interpretation reports
+- Applies concept-aware governance policies without modifying the model probability score
+- Supports DPG-derived quantitative policy predicates and conservative operational threshold control
+- Records append-only governance events and supports explicit human approval or override
+- Keeps policy-controlled decisions separate from automatic model-training feedback
 - Supports a simplified continuous learning loop (`train → test → promote → unseen → feedback → retrain`)
 
 ---
@@ -126,8 +130,9 @@ flowchart TD
     K --> B1
 ```
 
-This diagram represents the full implemented workflow: feedback examples are
-collected and re-injected into TRAIN at the next run.
+This diagram focuses on the continuous-learning feedback path: examples with an
+original HIGH model risk level are collected and re-injected into TRAIN at the
+next run. Concept-aware control and human review are described separately below.
 
 ---
 
@@ -146,8 +151,10 @@ The reset script removes:
 - generated datasets under `data/processed/`
 - trained candidate + champion models
 - temporary staging artifacts
+- runtime governance audit events under `data/governance/`
+- generated control-layer evaluation outputs
 
-Raw train / test / unseen pools remain untouched.
+Raw train / test / unseen pools and versioned governance policies remain untouched.
 
 ---
 
@@ -183,10 +190,10 @@ spec-lens-pml/
 ├── demo.py                 # End-to-end CLI demo (continuous learning)
 ├── ct_trigger.py           # Champion / Challenger evaluation + promotion
 ├── reset.sh                # Reset pipeline state for a clean demo run
-├── config.yaml             # Central configuration (models + MLOps policies)
+├── config.yaml             # Central model and operational-threshold configuration
 ├── data/
 │   ├── raw_train/          # Training pool: annotated Python examples
-│   ├── raw_test/           # Test pool: held-out examples for evaluation
+│   ├── raw_test/           # Test pool: separate from model fitting
 │   ├── raw_unseen/         # Unseen examples analyzed by the promoted champion model
 │   ├── raw_feedback/       # Feedback pool: high-risk unseen examples collected for retraining
 │   ├── processed/          # Generated datasets (CSV artifacts produced by the pipeline)
@@ -199,18 +206,28 @@ spec-lens-pml/
 │   ├── features.py         # Shared feature extraction schema
 │   └── train.py            # Candidate model training (logistic / forest)
 ├── inference/
-│   └── predict.py          # Inference using the champion model
+│   └── predict.py          # Champion inference + concept-aware operational control
+├── governance/
+│   ├── concepts.py         # Shared feature -> software-engineering concept taxonomy
+│   ├── control.py          # Policy matching, conservative threshold control, audit events
+│   ├── policies.yaml       # Versioned human-defined governance policies
+│   └── review.py           # Append-only human approval / override
 ├── experiments/
 │   ├── dpg_explain_forest.py   # DPG extraction, metrics, plots, and class-aware analyses
 │   ├── dpg_concept_analysis.py # Concept-level analysis of DPG communities and local paths
-│   └── dpg_outputs/            # Generated DPG artifacts (ignored by Git)
+│   ├── evaluate_control.py      # Baseline vs concept-aware control evaluation
+│   ├── dpg_outputs/             # Generated DPG artifacts (ignored by Git)
+│   └── control_outputs/         # Generated control-evaluation artifacts (ignored by Git)
+├── tests/
+│   └── test_governance.py      # Control/governance regression tests
 ├── models/
 │   ├── logistic.pkl        # Generated candidate model artifact
 │   ├── forest.pkl          # Generated candidate model artifact
 │   ├── best_model.pkl      # Generated promoted champion model
 │   ├── logistic_training_context.pkl
 │   └── forest_training_context.pkl
-├── requirements.txt
+├── SpecLens_Governance.md  # Detailed control/governance architecture and evaluation notes
+├── pyproject.toml          # Package metadata and dependencies
 └── README.md
 ```
 
@@ -222,6 +239,9 @@ Notes:
 - The folder `data/_tmp_train/` is a runtime staging directory rebuilt automatically by `demo.py`
 - Model artifacts and processed datasets are generated runtime artifacts and should normally be ignored by Git
 - Generated DPG artifacts are written under `experiments/dpg_outputs/` and are ignored by Git
+- Generated control-evaluation artifacts are written under `experiments/control_outputs/` and are ignored by Git
+- Runtime governance events are written under `data/governance/*.jsonl` and are ignored by Git
+- Versioned policy definitions remain under `governance/policies.yaml`
 - The raw data pools follow a simple numbering convention to make dataset provenance clearer:
   - `raw_train/`: examples such as `example001.py`, `example002.py`, ...
   - `raw_test/`: examples such as `example101.py`, `example102.py`, ...
@@ -458,7 +478,9 @@ not from the simplified visualization. The simplified graph is only a readabilit
 view, while the concept-level analysis uses the full predicate set available in
 the DPG outputs.
 
-The mapping is deterministic and intentionally conservative:
+The mapping is deterministic and intentionally conservative. The shared
+feature-to-concept taxonomy is defined in `governance/concepts.py` and is reused
+by both DPG analysis and the operational control layer:
 
 ```text
 DPG predicate → feature → concept family → polarity → interpretation
@@ -518,16 +540,28 @@ python3 experiments/dpg_explain_forest.py \
 python3 experiments/dpg_concept_analysis.py
 ```
 
-The full clean run is therefore:
+The full clean analysis can optionally continue with the control-layer
+evaluation:
+
+```bash
+python3 experiments/evaluate_control.py
+```
+
+The full sequence is therefore:
 
 ```text
-reset → demo pipeline → DPG structural analysis → concept-level interpretation
+reset
+→ demo pipeline
+→ DPG structural analysis
+→ concept-level interpretation
+→ concept-aware control evaluation
 ```
 
 `reset.sh` removes runtime artifacts such as generated datasets, model files,
-temporary training folders, and feedback examples. Feedback files under
-`data/raw_feedback/` are generated during the demo and should not be committed,
-except for an optional `.gitkeep` file used to preserve the empty directory.
+temporary training folders, feedback examples, governance event logs, and
+generated control-evaluation outputs. Feedback files under `data/raw_feedback/`
+are generated during the demo and should not be committed, except for an
+optional `.gitkeep` file used to preserve the empty directory.
 
 ### Generate both simplified visualizations
 
@@ -607,6 +641,252 @@ control.
 
 ---
 
+
+## Concept-Aware Control and Governance
+
+SpecLens-PML separates the model prediction from the operational decision and
+from subsequent human governance actions.
+
+The serving path is:
+
+```text
+model probability score
+        ↓
+original operational risk level
+        ↓
+software-engineering concepts
+        ↓
+human-defined policy matching
+        ↓
+controlled HIGH threshold
+        ↓
+controlled risk level
+        ↓
+audit event
+        ↓
+optional human APPROVE / OVERRIDE
+```
+
+The central invariant is:
+
+> Governance policies never modify the trained model or its probability score.
+
+The default operational thresholds are:
+
+```text
+LOW     score < 0.20
+MEDIUM  0.20 <= score < 0.60
+HIGH    score >= 0.60
+```
+
+A policy may only make the HIGH threshold more conservative. A policy whose
+configured HIGH threshold is greater than the baseline HIGH threshold is
+rejected.
+
+### Shared software-engineering concept taxonomy
+
+The deterministic feature-to-concept mapping is defined in:
+
+```text
+governance/concepts.py
+```
+
+The same taxonomy is used by:
+
+- `experiments/dpg_concept_analysis.py`, for explanation;
+- `inference/predict.py`, for operational concept extraction;
+- `governance/control.py`, for policy interpretation and validation.
+
+Representative mappings include:
+
+```text
+has_subscript        -> INDEX_ACCESS
+n_requires           -> PRECONDITION_COVERAGE
+n_contracts_total    -> CONTRACT_COVERAGE
+ensures_complexity   -> POSTCONDITION_COMPLEXITY
+n_loc                -> STRUCTURAL_SIZE
+has_snapshot         -> SNAPSHOT_USAGE
+```
+
+This shared layer keeps DPG explanation and operational control aligned.
+
+### Policy language
+
+Policies are versioned in:
+
+```text
+governance/policies.yaml
+```
+
+The control layer supports simple concept-state conditions:
+
+```yaml
+when:
+  INDEX_ACCESS: present
+  MISSING_PRECONDITION_COVERAGE: present
+```
+
+and quantitative predicates that preserve DPG threshold evidence:
+
+```yaml
+when:
+  - concept: CONTRACT_COVERAGE
+    feature: n_contracts_total
+    operator: "<="
+    value: 2.5
+
+  - concept: POSTCONDITION_COMPLEXITY
+    feature: ensures_complexity
+    operator: ">"
+    value: 9.5
+```
+
+The current policy configuration is version 2 and includes:
+
+- **P001** — indexed access without precondition coverage;
+- **P002** — limited contract coverage with complex postconditions;
+- **P003** — larger functions with complex postconditions.
+
+P001 validates the concept-state policy mechanism. P002 and P003 were informed
+by DPG evidence and selected on the internal TRAIN-derived validation split.
+They are human-defined governance rules informed by explanation; they should not
+be interpreted as automatically learned causal rules.
+
+### Control-layer evaluation
+
+Run:
+
+```bash
+python3 experiments/evaluate_control.py
+```
+
+The experiment compares the baseline operational decision with the controlled
+decision without changing champion/challenger model selection.
+
+Generated outputs include:
+
+```text
+experiments/control_outputs/control_predictions.csv
+experiments/control_outputs/changed_decisions.csv
+experiments/control_outputs/policy_summary.csv
+experiments/control_outputs/control_summary.txt
+```
+
+A current 30-case TRAIN-derived validation split produced:
+
+| Metric | Baseline HIGH=0.60 | Concept-aware control |
+|---|---:|---:|
+| RISKY recall | 0.273 | 0.545 |
+| RISKY precision | 0.500 | 0.667 |
+| RISKY F1 | 0.353 | 0.600 |
+| False negatives | 8 | 5 |
+| False positives | 3 | 3 |
+
+Three validation decisions changed from MEDIUM to HIGH, all for RISKY-labelled
+cases.
+
+On the current 25-case TEST split:
+
+| Metric | Baseline HIGH=0.60 | Concept-aware control |
+|---|---:|---:|
+| Accuracy | 0.840 | 0.920 |
+| RISKY recall | 0.500 | 0.750 |
+| RISKY precision | 1.000 | 1.000 |
+| RISKY F1 | 0.667 | 0.857 |
+| False negatives | 4 | 2 |
+| False positives | 0 | 0 |
+
+The two TEST decisions changed by policy version 2 were:
+
+```text
+keys_count
+    score: 0.555
+    MEDIUM -> HIGH
+    policy: P002
+
+update_value
+    score: 0.589
+    MEDIUM -> HIGH
+    policies: P002 + P003
+```
+
+The model scores remained unchanged.
+
+A diagnostic global reduction of the HIGH threshold from `0.60` to `0.50`
+produced the same final HIGH/not-HIGH decisions and the same predictive metrics
+as the current policy-controlled configuration on both the validation and TEST
+splits.
+
+Therefore, these experiments do **not** demonstrate predictive superiority over
+global threshold tuning. The demonstrated role of the policy layer is instead
+to provide intervention that is:
+
+- conditional rather than globally applied;
+- grounded in explicit software-engineering concepts;
+- supported by inspectable feature/predicate evidence;
+- versioned;
+- auditable;
+- subject to human approval or override.
+
+Because the current TEST split was inspected during policy development, these
+numbers should be treated as engineering/prototype evidence rather than an
+untouched final benchmark. Publication-grade evaluation should freeze the policy
+configuration before using a fresh holdout or an appropriate repeated evaluation
+protocol.
+
+### Audit trail and human review
+
+Matched policies can generate append-only control events under:
+
+```text
+data/governance/control_events.jsonl
+```
+
+A matched policy may be audited even when it does not change the operational
+risk level. Human review is required only when a matched policy changes the
+decision and that policy has `require_review: true`.
+
+A controlled decision can be approved:
+
+```bash
+python3 governance/review.py EVENT_ID \
+  --approve \
+  --reason "Policy evidence reviewed."
+```
+
+or overridden:
+
+```bash
+python3 governance/review.py EVENT_ID \
+  --override MEDIUM \
+  --reason "Manual review accepts the original MEDIUM level."
+```
+
+Human review is append-only: the original control event is preserved and a
+separate `human_review` record is added. Overrides require an explicit rationale.
+
+### Feedback isolation
+
+The continuous-learning feedback loop is intentionally based on the **original
+model risk level**, not on the policy-controlled level.
+
+Only an inference output containing:
+
+```text
+Original risk level: HIGH
+```
+
+is eligible for automatic feedback collection.
+
+A function escalated from MEDIUM to HIGH by a governance policy therefore does
+not silently become a future training example. This keeps model learning
+separate from human-defined operational governance.
+
+For the full architecture, policy semantics, evaluation notes, limitations, and
+review workflow, see [`SpecLens_Governance.md`](SpecLens_Governance.md).
+
+---
+
 ## Setup
 
 Create and activate a virtual environment:
@@ -623,7 +903,7 @@ pip install -e .
 ```
 
 This installs SpecLens-PML as an editable package and automatically resolves all
-dependencies declared in the project configuration (`setup.py` / `pyproject.toml`).
+dependencies declared in the project configuration (`pyproject.toml`).
 This enables clean imports across the repository, for example `import pml`,
 without relying on manual `sys.path` modifications.
 
@@ -726,8 +1006,10 @@ may produce slightly different labels and metrics.
 python pipeline/build_dataset.py data/raw_test data/processed/datasets_test.csv
 ```
 
-The TEST dataset is a held-out split used only for candidate evaluation. It is
-never mixed into training.
+The TEST dataset is separate from model fitting and is never mixed into
+training. It is used for candidate evaluation and promotion. In the current
+research prototype it has also been inspected during control-layer development,
+so it should not be treated as an untouched final benchmark.
 
 ### 3. Train candidate models
 
@@ -764,7 +1046,7 @@ python ct_trigger.py data/processed/datasets_test.csv
 The trigger:
 
 - Loads candidate artifacts
-- Evaluates each candidate on the held-out TEST dataset
+- Evaluates each candidate on the separate TEST dataset
 - Selects the champion by maximizing recall on the RISKY class:
 
 ```text
@@ -777,7 +1059,7 @@ Where:
 - FN = risky functions missed by the model
 
 The governance trigger promotes the candidate model that catches the highest
-proportion of real contract violations on the held-out TEST set.
+proportion of real contract violations on the separate TEST set.
 
 The winner is saved as the serving artifact:
 
@@ -791,13 +1073,18 @@ models/best_model.pkl
 python inference/predict.py data/raw_unseen/example201.py
 ```
 
-The inference script loads the promoted champion and produces:
+The inference script loads the promoted champion and produces, for each
+function:
 
-- Per-function probability of being RISKY
-- Operational risk level:
-  - `LOW`
-  - `MEDIUM`
-  - `HIGH`
+- the unchanged model probability of being RISKY;
+- the original operational risk level (`LOW`, `MEDIUM`, `HIGH`);
+- relevant software-engineering concept states;
+- matched governance policies and predicate evidence;
+- the original and controlled HIGH thresholds;
+- the controlled operational risk level;
+- whether the decision changed;
+- whether human review is required;
+- the governance event identifier when a policy matched.
 
 `demo.py` runs inference on all files in `data/raw_unseen/`.
 
@@ -807,11 +1094,15 @@ By convention, unseen examples use a dedicated numbering range such as:
 - `example202.py`
 - `example203.py`
 
-If a high-risk function is detected, the file is copied into:
+If the **original model risk level** is HIGH, the file is copied into:
 
 ```text
 data/raw_feedback/
 ```
+
+A policy-controlled escalation from MEDIUM to HIGH does not by itself enter the
+feedback pool. This prevents governance policies from silently influencing
+future model training.
 
 Re-running `demo.py` after collecting feedback automatically retrains the system
 with an expanded TRAIN pool (`raw_train + raw_feedback`), demonstrating a complete
@@ -956,13 +1247,18 @@ automated, and promotion becomes a governance decision.
 ## Training, Evaluation, Promotion and Serving
 
 In summary, SpecLens-PML trains multiple candidate models, evaluates them on a
-held-out TEST set, and promotes a single champion artifact (`best_model.pkl`) that
+separate TEST set, and promotes a single champion artifact (`best_model.pkl`) that
 is then served for operational inference on new unseen Python programs via
 `inference/predict.py` and the Streamlit interface.
 
+Serving preserves the model probability and original risk level before applying
+the optional concept-aware control layer. Governance policies can only make the
+HIGH threshold more conservative and can create auditable review events; they do
+not modify candidate/champion selection.
+
 The Random Forest candidate is also used as the tree-based model for
 Decision Predicate Graph analysis, even when the operational champion selected
-by the governance metric is a different model.
+by the promotion metric is a different model.
 
 ---
 
@@ -972,10 +1268,13 @@ SpecLens-PML is designed as an educational MLOps system:
 
 - Datasets are generated automatically from code
 - Labels come from dynamic execution and contract checking
-- Candidate models are trained and compared on a held-out test set
+- Candidate models are trained and compared on a TEST set separate from model fitting
 - The system can collect feedback from unseen examples
 - Contract-aware features make the resulting dataset suitable for explanation
   and governance experiments
+- DPG predicates can be mapped to software-engineering concepts
+- Human-defined policies can control operational decisions without changing model scores
+- Policy matches, approvals, and overrides can be recorded in an append-only audit trail
 
 The quality of predictions depends on data availability: the more annotated code
 is added to `data/raw_train/`, the more informative the system becomes.
@@ -993,15 +1292,15 @@ the door to broader research-oriented extensions.
 
 Possible next steps include:
 
-- Extending the existing Decision Predicate Graph (DPG) structural explainability
-  layer with additional class-aware, community-level, and local analyses
-- Using DPG to analyze global and local decision predicates behind risk predictions
-- Mapping DPG predicates to software-engineering concepts such as missing
-  precondition coverage, state-sensitive contracts, contract complexity, mutation,
-  indexing risk, or unsafe arithmetic
-- Comparing feature-level explanations with structural DPG-based explanations
-- Studying controllability and governability by analyzing how DPG structures
-  change under different thresholds or policy settings
+- Evaluating frozen governance policies on a fresh, untouched holdout or through
+  repeated evaluation protocols
+- Scaling the dataset with additional contract and program-structure diversity
+- Extending the DPG analysis with additional stability and scalability studies
+- Comparing feature-level explanations with DPG structural explanations and
+  concept-level summaries
+- Studying when concept-aware policy control differs materially from global
+  threshold tuning
+- Evaluating policy robustness under retraining and model changes
 - Continuing the adaptation of examples from the Python-by-Contract corpus
 - Extending PML with additional lightweight constructs only when they are useful
   for risk assessment and remain interpretable
