@@ -33,6 +33,54 @@ SpecLens-PML builds an end-to-end MLOps pipeline with feedback-driven retraining
 
 ---
 
+## Quick Start — Simplified SpecLens CLI
+
+The recommended user-facing interface is the repository-level `speclens`
+command. It orchestrates the existing pipeline, DPG, control, and governance
+modules without duplicating their logic.
+
+The main commands are:
+
+```bash
+./speclens reset
+./speclens run
+./speclens control
+./speclens govern
+./speclens all
+```
+
+Their roles are intentionally simple:
+
+| Command | Purpose |
+|---|---|
+| `./speclens reset` | Remove generated runtime state while preserving versioned source data and policies |
+| `./speclens run` | Clean end-to-end MLOps run: reset, dataset generation, training, promotion, unseen inference, feedback |
+| `./speclens run --continue` | Run another learning cycle while keeping previously collected feedback/runtime state |
+| `./speclens control` | Generate DPG explanations, concept summaries, control evaluation, and open the simplified global graph |
+| `./speclens graph` | Reopen the latest generated DPG graph |
+| `./speclens govern` | Run governed inference on a concrete example and highlight cases requiring human review |
+| `./speclens all` | Run the complete demo: clean pipeline, explainability/control analysis, governance example, and graph visualization |
+
+A typical interactive demo is therefore:
+
+```bash
+./speclens run
+./speclens control
+./speclens govern
+```
+
+or, for a single-command end-to-end presentation:
+
+```bash
+./speclens all
+```
+
+The lower-level Python scripts documented later in this README remain the
+implementation and developer interfaces used by `speclens`, CI, tests, and
+research experiments.
+
+---
+
 ## PML Syntax Examples
 
 Contracts may be placed immediately above a definition or inside the
@@ -97,9 +145,10 @@ the full semantics of JML, `icontract`, or Python formal verification tools.
 
 ## MLOps Feedback Loop
 
-The full pipeline can be executed reproducibly from scratch using the provided
-`reset.sh` script, which clears generated artifacts and resets the feedback loop
-before a new run.
+The full pipeline can be executed reproducibly through the simplified CLI.
+`./speclens run` performs a clean reset before starting the end-to-end workflow,
+while `./speclens run --continue` keeps collected feedback for the next learning
+cycle.
 
 The following diagram represents the implemented operational lifecycle, including
 the feedback loop that reinjects high-risk unseen examples into training on
@@ -138,23 +187,35 @@ next run. Concept-aware control and human review are described separately below.
 
 ## Resetting the Demo State
 
-To run the pipeline from scratch, use:
+The recommended reset command is:
 
 ```bash
-./reset.sh
-python3 demo.py
+./speclens reset
 ```
 
-The reset script removes:
+To immediately start a fresh end-to-end run, use:
+
+```bash
+./speclens run
+```
+
+`./speclens run` invokes the reset automatically before executing the pipeline.
+
+The reset removes:
 
 - feedback pool
 - generated datasets under `data/processed/`
 - trained candidate + champion models
 - temporary staging artifacts
+- generated DPG outputs under `experiments/dpg_outputs/`
 - runtime governance audit events under `data/governance/`
-- generated control-layer evaluation outputs
+- generated control-layer evaluation outputs under `experiments/control_outputs/`
 
-Raw train / test / unseen pools and versioned governance policies remain untouched.
+Raw train / test / unseen pools, source code, and versioned governance policies
+remain untouched.
+
+The lower-level `reset.sh` script remains available as the backend implementation
+used by the simplified CLI and automation.
 
 ---
 
@@ -186,10 +247,11 @@ governance, inference, and deployment:
 
 ```text
 spec-lens-pml/
+├── speclens                # Recommended user-facing CLI
 ├── app.py                  # Streamlit web interface
-├── demo.py                 # End-to-end CLI demo (continuous learning)
+├── demo.py                 # Backend end-to-end MLOps orchestration
 ├── ct_trigger.py           # Champion / Challenger evaluation + promotion
-├── reset.sh                # Reset pipeline state for a clean demo run
+├── reset.sh                # Backend runtime reset used by the simplified CLI
 ├── config.yaml             # Central model and operational-threshold configuration
 ├── data/
 │   ├── raw_train/          # Training pool: annotated Python examples
@@ -500,7 +562,17 @@ RISKY paths before drawing conclusions about concrete decision behavior.
 
 ### Run the experimental DPG analysis pipeline
 
-A complete experimental DPG analysis can be run with:
+For normal use, the recommended command is:
+
+```bash
+./speclens control
+```
+
+It generates the DPG, community and concept summaries, evaluates the control
+layer, prints a concise interpretation, and opens the simplified global graph.
+
+For advanced/developer use, the same experimental analysis can be run directly
+with:
 
 ```bash
 python3 experiments/dpg_explain_forest.py \
@@ -519,17 +591,46 @@ community interpretation report.
 
 ### Run a full clean demo and DPG analysis
 
-To validate the whole project from a clean runtime state, first reset generated
-artifacts and execute the core demo pipeline:
+The recommended user-facing sequence is:
+
+```bash
+./speclens run
+./speclens control
+./speclens govern
+```
+
+or, equivalently, the complete presentation workflow can be executed with:
+
+```bash
+./speclens all
+```
+
+The sequence is:
+
+```text
+reset
+→ demo pipeline
+→ DPG structural analysis
+→ concept-level interpretation
+→ concept-aware control evaluation
+→ governed inference
+→ graph visualization
+```
+
+`./speclens control` automatically opens the simplified global DPG when the
+desktop environment supports it. The graph can later be reopened with:
+
+```bash
+./speclens graph
+```
+
+The lower-level scripts remain available for reproducibility, debugging, CI, and
+research experiments:
 
 ```bash
 ./reset.sh
 python3 demo.py
-```
 
-Then run the experimental DPG analysis pipeline:
-
-```bash
 python3 experiments/dpg_explain_forest.py \
   --render-simplified-global \
   --top-k-nodes 15 \
@@ -538,30 +639,11 @@ python3 experiments/dpg_explain_forest.py \
   --render-community-summary
 
 python3 experiments/dpg_concept_analysis.py
-```
-
-The full clean analysis can optionally continue with the control-layer
-evaluation:
-
-```bash
 python3 experiments/evaluate_control.py
 ```
 
-The full sequence is therefore:
-
-```text
-reset
-→ demo pipeline
-→ DPG structural analysis
-→ concept-level interpretation
-→ concept-aware control evaluation
-```
-
-`reset.sh` removes runtime artifacts such as generated datasets, model files,
-temporary training folders, feedback examples, governance event logs, and
-generated control-evaluation outputs. Feedback files under `data/raw_feedback/`
-are generated during the demo and should not be committed, except for an
-optional `.gitkeep` file used to preserve the empty directory.
+Runtime feedback files under `data/raw_feedback/` should not be committed,
+except for an optional `.gitkeep` file used to preserve the empty directory.
 
 ### Generate both simplified visualizations
 
@@ -754,7 +836,16 @@ be interpreted as automatically learned causal rules.
 
 ### Control-layer evaluation
 
-Run:
+The recommended command is:
+
+```bash
+./speclens control
+```
+
+This runs DPG generation, concept analysis, control evaluation, concise result
+summaries, and graph visualization in one step.
+
+For advanced/developer use, the control evaluation can still be invoked directly:
 
 ```bash
 python3 experiments/evaluate_control.py
@@ -846,21 +937,24 @@ A matched policy may be audited even when it does not change the operational
 risk level. Human review is required only when a matched policy changes the
 decision and that policy has `require_review: true`.
 
-A controlled decision can be approved:
+A controlled decision can be approved through the simplified CLI:
 
 ```bash
-python3 governance/review.py EVENT_ID \
-  --approve \
+./speclens govern \
+  --approve EVENT_ID \
   --reason "Policy evidence reviewed."
 ```
 
 or overridden:
 
 ```bash
-python3 governance/review.py EVENT_ID \
-  --override MEDIUM \
+./speclens govern \
+  --override EVENT_ID MEDIUM \
   --reason "Manual review accepts the original MEDIUM level."
 ```
+
+The lower-level `governance/review.py` command remains available for direct
+developer use.
 
 Human review is append-only: the original control event is preserved and a
 separate `human_review` record is added. Overrides require an explicit rationale.
@@ -963,13 +1057,22 @@ docs/build/html/index.html
 
 ## End-to-End Demo (CLI)
 
-The entire pipeline can be executed with a single command:
+The recommended user-facing command is:
 
 ```bash
-python3 demo.py
+./speclens run
 ```
 
-This performs the following steps.
+This performs a clean reset and then executes the end-to-end MLOps pipeline.
+
+To keep previously collected feedback for another learning cycle, use:
+
+```bash
+./speclens run --continue
+```
+
+The underlying orchestration is still implemented by `demo.py`; the detailed
+backend steps are documented below.
 
 ### 1. Build TRAIN dataset
 
@@ -1068,6 +1171,23 @@ models/best_model.pkl
 ```
 
 ### 5. Inference on UNSEEN examples and feedback collection
+
+For normal governed inference and a concise human-readable summary, use:
+
+```bash
+./speclens govern
+```
+
+By default this analyzes `data/raw_test/example102.py`, which is useful for
+demonstrating policy matches, changed decisions, and human-review requirements.
+
+For direct inference on a specific file, use:
+
+```bash
+./speclens govern data/raw_unseen/example201.py
+```
+
+The lower-level backend command remains:
 
 ```bash
 python inference/predict.py data/raw_unseen/example201.py
@@ -1248,8 +1368,9 @@ automated, and promotion becomes a governance decision.
 
 In summary, SpecLens-PML trains multiple candidate models, evaluates them on a
 separate TEST set, and promotes a single champion artifact (`best_model.pkl`) that
-is then served for operational inference on new unseen Python programs via
-`inference/predict.py` and the Streamlit interface.
+is then served for operational inference on new unseen Python programs. The
+recommended CLI entry point is `./speclens`, while `inference/predict.py` and the
+Streamlit interface remain direct/backend interfaces.
 
 Serving preserves the model probability and original risk level before applying
 the optional concept-aware control layer. Governance policies can only make the

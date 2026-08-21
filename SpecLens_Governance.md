@@ -32,6 +32,7 @@ SpecLens-PML currently provides:
 - append-only control-event logging;
 - explicit human APPROVE and OVERRIDE actions;
 - feedback-driven continuous retraining;
+- a simplified `speclens` orchestration interface;
 - deterministic reset and reproducible execution.
 
 ---
@@ -86,6 +87,42 @@ In the current configuration:
 A matched policy may reduce the HIGH threshold, but it cannot increase it above
 the baseline value.
 
+### Simplified operational interface
+
+The recommended human-facing interface is the repository-level `speclens`
+command:
+
+```bash
+./speclens reset
+./speclens run
+./speclens control
+./speclens govern
+./speclens all
+```
+
+The interface is an orchestration/presentation layer. It does not duplicate or
+replace the underlying model, DPG, control, or review logic.
+
+Its main roles are:
+
+```text
+run
+  -> build/train/evaluate/promote/infer/feedback
+
+control
+  -> DPG/explain/concepts/control evaluation/graph
+
+govern
+  -> governed inference/evidence/human review
+
+all
+  -> complete demonstration workflow
+```
+
+Lower-level scripts such as `demo.py`, `experiments/dpg_explain_forest.py`,
+`experiments/evaluate_control.py`, `inference/predict.py`, and
+`governance/review.py` remain the backend/developer interfaces.
+
 ---
 
 ## 3. Model Lifecycle Governance
@@ -133,7 +170,16 @@ SpecLens-PML provides structural explanation through Decision Predicate Graphs
 The DPG analysis preserves decision predicates and transition structure from
 tree execution paths.
 
-The current analysis pipeline includes:
+The recommended user-facing command is:
+
+```bash
+./speclens control
+```
+
+It generates the DPG, class-aware community summaries, concept-level
+interpretation, control evaluation, and opens the simplified global graph.
+
+The underlying analysis pipeline remains:
 
 ```bash
 python3 experiments/dpg_explain_forest.py \
@@ -491,21 +537,24 @@ Human review is implemented by:
 governance/review.py
 ```
 
-A controlled decision may be explicitly approved:
+A controlled decision may be explicitly approved through the simplified CLI:
 
 ```bash
-python3 governance/review.py EVENT_ID \
-  --approve \
+./speclens govern \
+  --approve EVENT_ID \
   --reason "Policy evidence reviewed."
 ```
 
 or overridden:
 
 ```bash
-python3 governance/review.py EVENT_ID \
-  --override MEDIUM \
+./speclens govern \
+  --override EVENT_ID MEDIUM \
   --reason "Manual review accepts the original MEDIUM level."
 ```
+
+The lower-level `governance/review.py` interface remains available for direct
+developer use.
 
 An override requires an explicit rationale.
 
@@ -560,11 +609,20 @@ operational governance
 
 ## 14. Reproducibility and Runtime Artifacts
 
-A full reset is performed with:
+The recommended reset command is:
 
 ```bash
-./reset.sh
+./speclens reset
 ```
+
+A clean end-to-end run can be started directly with:
+
+```bash
+./speclens run
+```
+
+`./speclens run` performs the reset automatically. The lower-level `reset.sh`
+script remains the backend implementation.
 
 The reset removes:
 
@@ -572,6 +630,7 @@ The reset removes:
 - temporary training artifacts;
 - generated TRAIN and TEST datasets;
 - trained model artifacts;
+- generated DPG outputs;
 - governance runtime audit events;
 - generated control-evaluation outputs.
 
@@ -579,14 +638,47 @@ The following runtime artifacts are ignored by Git:
 
 ```text
 data/governance/*.jsonl
+experiments/dpg_outputs/
 experiments/control_outputs/
 ```
 
-The policy definition itself remains versioned:
+Versioned raw inputs and governance policy definitions remain preserved:
 
 ```text
+data/raw_train/
+data/raw_test/
+data/raw_unseen/
 governance/policies.yaml
 ```
+
+---
+
+### Recommended complete demonstration
+
+The complete operational demonstration can be run step by step:
+
+```bash
+./speclens run
+./speclens control
+./speclens govern
+```
+
+or in one command:
+
+```bash
+./speclens all
+```
+
+The `control` command opens the simplified global DPG automatically when the
+desktop environment supports it. The latest graph can be reopened with:
+
+```bash
+./speclens graph
+```
+
+The simplified CLI is intended to improve usability and presentation only; it
+does not alter model probabilities, DPG construction, governance policies,
+evaluation semantics, or the append-only review model.
 
 ---
 

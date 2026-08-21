@@ -1,0 +1,766 @@
+#!/usr/bin/env python3
+"""
+SpecLens-PML simplified CLI.
+
+Commands:
+  ./speclens reset
+  ./speclens run [--continue]
+  ./speclens control [--no-open]
+  ./speclens govern [FILE]
+  ./speclens govern --approve EVENT_ID [--reason TEXT]
+  ./speclens govern --override EVENT_ID LEVEL --reason TEXT
+  ./speclens graph [global|community]
+  ./speclens all
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Iterable
+
+ROOT = Path(__file__).resolve().parent
+DPG_DIR = ROOT / "experiments" / "dpg_outputs"
+CONTROL_DIR = ROOT / "experiments" / "control_outputs"
+AUDIT_LOG = ROOT / "data" / "governance" / "control_events.jsonl"
+
+BASELINE_HIGH = 0.60
+GLOBAL_HIGH = 0.50
+
+
+def title(text: str) -> None:
+    print()
+    print("=" * 72)
+    print(text)
+    print("=" * 72)
+
+
+def run_cmd(
+    args: list[str],
+    *,
+    label: str,
+    capture: bool = True,
+    cwd: Path = ROOT,
+) -> str:
+    print(f"[...] {label}")
+    result = subprocess.run(
+        args,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.STDOUT if capture else None,
+    )
+    if result.returncode != 0:
+        print(f"[ERROR] {label} failed.")
+        if capture and result.stdout:
+            print("\n--- command output ---")
+            print(result.stdout[-8000:])
+        raise SystemExit(result.returncode)
+
+    print(f"[OK]  {label}")
+    return result.stdout or ""
+
+
+def count_csv_rows(path: Path) -> int | None:
+    if not path.exists():
+        return None
+    with path.open(newline="", encoding="utf-8") as f:
+        return sum(1 for _ in csv.DictReader(f))
+
+
+def model_name(path: Path) -> str:
+    if not path.exists():
+        return "not available"
+    try:
+        import joblib
+        model = joblib.load(path)
+        name = type(model).__name__
+        if name == "Pipeline" and getattr(model, "steps", None):
+            name = type(model.steps[-1][1]).__name__
+        return name
+    except Exception:
+        return "best_model.pkl"
+
+
+def print_run_summary() -> None:
+    train_path = ROOT / "data" / "processed" / "datasets_train.csv"
+    test_path = ROOT / "data" / "processed" / "datasets_test.csv"
+    feedback_dir = ROOT / "data" / "raw_feedback"
+
+    train_n = count_csv_rows(train_path)
+    test_n = count_csv_rows(test_path)
+    feedback_n = (
+        len([p for p in feedback_dir.glob("*.py") if p.is_file()])
+        if feedback_dir.exists()
+        else 0
+    )
+
+    title("SPECLENS RUN — SUMMARY")
+    print(f"TRAIN functions : {train_n if train_n is not None else 'n/a'}")
+    print(f"TEST functions  : {test_n if test_n is not None else 'n/a'}")
+    print(f"Champion model  : {model_name(ROOT / 'models' / 'best_model.pkl')}")
+    print(f"Feedback files  : {feedback_n}")
+    print()
+    print("Interpretation:")
+    print("  • TRAIN is used to learn candidate models.")
+    print("  • TEST is separate from model fitting and is used for promotion/evaluation.")
+    print("  • best_model.pkl is the active serving model.")
+    print("  • Feedback comes only from ORIGINAL HIGH model decisions.")
+    print()
+    print("Next: ./speclens control")
+
+
+def command_reset(*, embedded: bool = False) -> None:
+    if not embedded:
+        title("SPECLENS RESET")
+
+    run_cmd(["bash", "reset.sh"], label="Reset runtime state")
+
+    if not embedded:
+        print()
+        print("Runtime state cleaned.")
+        print("Versioned raw datasets, source code, and governance policies are preserved.")
+        print()
+        print("Next: ./speclens run")
+
+
+def command_run(continue_mode: bool = False) -> None:
+    title("SPECLENS RUN")
+
+    if not continue_mode:
+        command_reset(embedded=True)
+    else:
+        print("[INFO] Keeping existing feedback/runtime state (--continue).")
+
+    run_cmd([sys.executable, "demo.py"], label="Run end-to-end MLOps pipeline")
+    print_run_summary()
+
+
+def csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def metrics(truth: list[int], pred: list[int]) -> dict[str, float | int]:
+    tp = sum(t == 1 and p == 1 for t, p in zip(truth, pred))
+    tn = sum(t == 0 and p == 0 for t, p in zip(truth, pred))
+    fp = sum(t == 0 and p == 1 for t, p in zip(truth, pred))
+    fn = sum(t == 1 and p == 0 for t, p in zip(truth, pred))
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if precision + recall
+        else 0.0
+    )
+    accuracy = (tp + tn) / len(truth) if truth else 0.0
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "fn": fn,
+        "fp": fp,
+    }
+
+
+def print_metric_row(name: str, m: dict[str, float | int]) -> None:
+    print(
+        f"{name:<20} "
+        f"recall={m['recall']:.3f}  "
+        f"precision={m['precision']:.3f}  "
+        f"F1={m['f1']:.3f}  "
+        f"FN={m['fn']}  FP={m['fp']}"
+    )
+
+
+def dpg_summary() -> tuple[int | None, int | None, int | None]:
+    """
+    Read authoritative DPG counts from generated summary artifacts.
+
+    global_summary.txt is preferred for node/edge counts because it reports
+    explanation.graph.number_of_nodes()/number_of_edges() directly.
+
+    community_class_summary.csv is preferred for community count because the raw
+    dpg_communities.csv export may use the DPG library's long-form
+    Section/Key/Value representation rather than a simple Community column.
+    """
+    nodes = None
+    edges = None
+    communities = None
+
+    summary_path = DPG_DIR / "global_summary.txt"
+    if summary_path.exists():
+        summary = summary_path.read_text(encoding="utf-8", errors="replace")
+
+        node_match = re.search(r"^DPG nodes:\s*(\d+)\s*$", summary, re.MULTILINE)
+        edge_match = re.search(r"^DPG edges:\s*(\d+)\s*$", summary, re.MULTILINE)
+
+        if node_match:
+            nodes = int(node_match.group(1))
+        if edge_match:
+            edges = int(edge_match.group(1))
+
+    # Safe fallbacks if the text summary is unavailable.
+    if nodes is None:
+        nodes = count_csv_rows(DPG_DIR / "dpg_node_metrics.csv")
+    if edges is None:
+        edges = count_csv_rows(DPG_DIR / "dpg_edge_metrics.csv")
+
+    community_summary = DPG_DIR / "community_class_summary.csv"
+    if community_summary.exists():
+        communities = count_csv_rows(community_summary)
+
+    return nodes, edges, communities
+
+
+def read_community_explanations(top_concepts: int = 4) -> list[dict]:
+    """
+    Build a concise, human-readable summary of DPG communities.
+
+    Community class association comes from community_class_summary.csv.
+    "Main concepts" are ranked only by Predicate count in
+    community_concept_summary.csv. They are descriptive structural summaries,
+    not causal claims and not automatically learned governance rules.
+    """
+    class_path = DPG_DIR / "community_class_summary.csv"
+    concept_path = DPG_DIR / "community_concept_summary.csv"
+
+    if not class_path.exists():
+        return []
+
+    class_rows = csv_rows(class_path)
+    concept_rows = csv_rows(concept_path) if concept_path.exists() else []
+
+    concepts_by_community: dict[str, list[dict[str, str]]] = {}
+    for row in concept_rows:
+        key = row.get("Community", "")
+        concepts_by_community.setdefault(key, []).append(row)
+
+    result: list[dict] = []
+
+    for row in class_rows:
+        community_key = row.get("Community", "")
+        dominant = (row.get("Dominant class") or "?").upper()
+        display = row.get("Display label") or community_key or "Community"
+
+        try:
+            predicate_count = int(float(row.get("Predicate count", "0")))
+        except ValueError:
+            predicate_count = 0
+
+        def pct(field: str) -> float:
+            try:
+                return float(row.get(field, "0")) * 100.0
+            except ValueError:
+                return 0.0
+
+        concept_rows_for_community = concepts_by_community.get(community_key, [])
+
+        def concept_count(item: dict[str, str]) -> int:
+            try:
+                return int(float(item.get("Predicate count", "0")))
+            except ValueError:
+                return 0
+
+        ranked = sorted(
+            concept_rows_for_community,
+            key=concept_count,
+            reverse=True,
+        )[:top_concepts]
+
+        main_concepts = [
+            (item.get("Concept", "?"), concept_count(item))
+            for item in ranked
+        ]
+
+        representative = [
+            part.strip()
+            for part in (row.get("Top by local reaching") or "").split(";")
+            if part.strip()
+        ][:3]
+
+        result.append(
+            {
+                "display": display,
+                "dominant": dominant,
+                "predicate_count": predicate_count,
+                "safe_pct": pct("SAFE association score"),
+                "risky_pct": pct("RISKY association score"),
+                "main_concepts": main_concepts,
+                "representative": representative,
+            }
+        )
+
+    return result
+
+
+def print_community_explanations() -> None:
+    communities = read_community_explanations()
+    if not communities:
+        print("Community interpretation: not available")
+        return
+
+    print("Community interpretation:")
+    print()
+
+    for community in communities:
+        print(f"  {community['display']}")
+        print(f"    Predicate nodes : {community['predicate_count']}")
+        print(
+            "    Association     : "
+            f"RISKY {community['risky_pct']:.1f}% | "
+            f"SAFE {community['safe_pct']:.1f}%"
+        )
+
+        concepts = community["main_concepts"]
+        if concepts:
+            print("    Main concepts   :")
+            for name, count in concepts:
+                print(f"      - {name} ({count})")
+
+        representative = community["representative"]
+        if representative:
+            print("    Representative :")
+            for predicate in representative:
+                print(f"      - {predicate}")
+
+        print()
+
+    print(
+        "  Note: community associations and concept counts are descriptive "
+        "properties of the DPG, not causal claims."
+    )
+
+
+def print_control_summary() -> None:
+    pred_path = CONTROL_DIR / "control_predictions.csv"
+    if not pred_path.exists():
+        print("[WARN] control_predictions.csv was not generated.")
+        return
+
+    rows = csv_rows(pred_path)
+    truth = [int(float(r["true_label"])) for r in rows]
+    scores = [float(r["model_score"]) for r in rows]
+    baseline = [int(float(r["baseline_risky"])) for r in rows]
+    controlled = [int(float(r["controlled_risky"])) for r in rows]
+    global_050 = [int(score >= GLOBAL_HIGH) for score in scores]
+
+    baseline_m = metrics(truth, baseline)
+    global_m = metrics(truth, global_050)
+    controlled_m = metrics(truth, controlled)
+
+    nodes, edges, communities = dpg_summary()
+
+    title("SPECLENS CONTROL — SUMMARY")
+    print(
+        "DPG structure   : "
+        f"{nodes if nodes is not None else 'n/a'} nodes, "
+        f"{edges if edges is not None else 'n/a'} edges, "
+        f"{communities if communities is not None else 'n/a'} communities"
+    )
+    print()
+    print_community_explanations()
+    print()
+    print("Operational control:")
+    print()
+    print_metric_row("Baseline HIGH=0.60", baseline_m)
+    print_metric_row("Global HIGH=0.50", global_m)
+    print_metric_row("Policy controlled", controlled_m)
+
+    changed_idx = [i for i, (a, b) in enumerate(zip(baseline, controlled)) if a != b]
+    differences = [i for i, (a, b) in enumerate(zip(global_050, controlled)) if a != b]
+
+    print()
+    print(f"Policy decisions changed : {len(changed_idx)}")
+    print(
+        "Global 0.50 vs policies : "
+        + ("same decisions on this dataset" if not differences else f"{len(differences)} differences")
+    )
+
+    if changed_idx:
+        print()
+        print("Changed cases:")
+        for i in changed_idx:
+            r = rows[i]
+            file_name = r.get("file", "?")
+            fn = r.get("function", "?")
+            policies = (r.get("matched_policy_ids", "-") or "-").replace(";", ",")
+            print(
+                f"  • {file_name} :: {fn} | "
+                f"score={scores[i]:.3f} | MEDIUM→HIGH | {policies}"
+            )
+
+    print()
+    print("Interpretation:")
+    print("  • The DPG communities summarize structural associations in the Random Forest.")
+    print("  • Lower FN / higher RISKY recall means fewer risky functions are missed.")
+    print("  • The model score is unchanged; policies only affect the operational threshold.")
+    if not differences:
+        print("  • Here, global 0.50 and policy control are predictively equivalent.")
+        print("  • The policy-layer contribution is selective, explainable and auditable control.")
+    else:
+        print("  • Here, policy control differs from a global 0.50 threshold.")
+
+    print()
+    print("Graph: ./speclens graph")
+    print("Governance demo: ./speclens govern")
+
+
+def open_file(path: Path) -> None:
+    if not path.exists():
+        raise SystemExit(f"Graph not found: {path}")
+
+    opener: list[str] | None = None
+    if shutil.which("xdg-open"):
+        opener = ["xdg-open", str(path)]
+    elif shutil.which("gio"):
+        opener = ["gio", "open", str(path)]
+    elif sys.platform == "darwin" and shutil.which("open"):
+        opener = ["open", str(path)]
+
+    if opener is None:
+        print(f"Open this file manually:\n{path}")
+        return
+
+    try:
+        subprocess.Popen(
+            opener,
+            cwd=ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        print(f"[OK] Opened graph: {path}")
+    except Exception as exc:
+        print(f"[WARN] Could not open graph automatically: {exc}")
+        print(f"Open manually: {path}")
+
+
+def command_graph(kind: str = "global") -> None:
+    if kind == "community":
+        candidates = [
+            DPG_DIR / "simplified_community_dpg.svg",
+            DPG_DIR / "simplified_community_dpg.png",
+        ]
+    else:
+        candidates = [
+            DPG_DIR / "simplified_global_dpg.svg",
+            DPG_DIR / "simplified_global_dpg.png",
+        ]
+
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        raise SystemExit(
+            "No generated graph found. Run './speclens control' first."
+        )
+
+    open_file(path)
+
+
+def command_control(open_graph_after: bool = True) -> None:
+    if not (ROOT / "models" / "forest.pkl").exists():
+        raise SystemExit("Model artifacts not found. Run './speclens run' first.")
+
+    title("SPECLENS CONTROL")
+
+    run_cmd(
+        [
+            sys.executable,
+            "experiments/dpg_explain_forest.py",
+            "--render-simplified-global",
+            "--top-k-nodes",
+            "15",
+            "--node-metric",
+            "local_reaching",
+            "--max-edges",
+            "25",
+            "--render-community-summary",
+        ],
+        label="Build DPG and simplified visualizations",
+    )
+
+    run_cmd(
+        [sys.executable, "experiments/dpg_concept_analysis.py"],
+        label="Map DPG predicates to software-engineering concepts",
+    )
+
+    run_cmd(
+        [sys.executable, "experiments/evaluate_control.py"],
+        label="Evaluate concept-aware control",
+    )
+
+    print_control_summary()
+
+    if open_graph_after:
+        print()
+        command_graph("global")
+
+
+FUNC_RE = re.compile(r"^- (?P<name>.+?) \(line \d+\)$")
+POLICY_RE = re.compile(r"^\s+(?P<id>P\d{3}) - ")
+EVIDENCE_RE = re.compile(r"^\s+evidence:\s*(?P<text>.+)$")
+
+
+def parse_inference(output: str) -> list[dict]:
+    records: list[dict] = []
+    current: dict | None = None
+
+    for raw in output.splitlines():
+        line = raw.rstrip()
+
+        m = FUNC_RE.match(line)
+        if m:
+            if current:
+                records.append(current)
+            current = {
+                "function": m.group("name"),
+                "policies": [],
+                "evidence": [],
+            }
+            continue
+
+        if current is None:
+            continue
+
+        stripped = line.strip()
+
+        if stripped.startswith("Model risk score:"):
+            current["score"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Original risk level:"):
+            current["original"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Controlled risk level:"):
+            current["controlled"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Decision changed:"):
+            current["changed"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Human review:"):
+            current["review"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Governance event:"):
+            current["event"] = stripped.split(":", 1)[1].strip()
+        else:
+            pm = POLICY_RE.match(line)
+            if pm:
+                current["policies"].append(pm.group("id"))
+            em = EVIDENCE_RE.match(line)
+            if em:
+                current["evidence"].append(em.group("text"))
+
+    if current:
+        records.append(current)
+
+    return records
+
+
+def print_govern_summary(path: Path, output: str) -> None:
+    records = parse_inference(output)
+
+    title("SPECLENS GOVERN — SUMMARY")
+    print(f"File: {path}")
+    print()
+
+    if not records:
+        print("No function records could be parsed.")
+        print("\nRaw output:")
+        print(output)
+        return
+
+    header = f"{'Function':<22} {'Score':>6}  {'Original':<8} {'Controlled':<10} {'Policies':<10} {'Review'}"
+    print(header)
+    print("-" * len(header))
+
+    for r in records:
+        policies = ",".join(r.get("policies", [])) or "-"
+        print(
+            f"{r.get('function', '?'):<22} "
+            f"{r.get('score', '?'):>6}  "
+            f"{r.get('original', '?'):<8} "
+            f"{r.get('controlled', '?'):<10} "
+            f"{policies:<10} "
+            f"{r.get('review', '?')}"
+        )
+
+    review_records = [
+        r for r in records
+        if r.get("review") == "required" and r.get("event") not in (None, "none")
+    ]
+
+    print()
+    if review_records:
+        print("Human review required:")
+        for r in review_records:
+            print(
+                f"\n  {r.get('function')} | "
+                f"score={r.get('score')} | "
+                f"{r.get('original')} → {r.get('controlled')} | "
+                f"policies={','.join(r.get('policies', []))}"
+            )
+            for evidence in r.get("evidence", []):
+                print(f"    why: {evidence}")
+            print(f"    event: {r.get('event')}")
+    else:
+        print("Human review required: none")
+
+    print()
+    print("Interpretation:")
+    print("  • Score = unchanged model probability.")
+    print("  • Original = baseline operational decision.")
+    print("  • Controlled = decision after matched governance policies.")
+    print("  • Review = human approval/override is required only if the decision changed.")
+
+
+def command_govern_file(path: Path) -> None:
+    if not path.is_absolute():
+        path = ROOT / path
+    if not path.exists():
+        raise SystemExit(f"Input file not found: {path}")
+
+    output = run_cmd(
+        [sys.executable, "inference/predict.py", str(path)],
+        label=f"Governed inference on {path.name}",
+    )
+    print_govern_summary(path, output)
+
+
+def command_review_approve(event_id: str, reason: str | None) -> None:
+    args = [
+        sys.executable,
+        "governance/review.py",
+        event_id,
+        "--approve",
+    ]
+    if reason:
+        args += ["--reason", reason]
+    output = run_cmd(args, label="Approve controlled decision")
+    title("HUMAN REVIEW RECORDED")
+    print(output.strip())
+
+
+def command_review_override(event_id: str, level: str, reason: str) -> None:
+    output = run_cmd(
+        [
+            sys.executable,
+            "governance/review.py",
+            event_id,
+            "--override",
+            level,
+            "--reason",
+            reason,
+        ],
+        label="Override controlled decision",
+    )
+    title("HUMAN REVIEW RECORDED")
+    print(output.strip())
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="./speclens",
+        description="Simple front-end for the SpecLens-PML workflow.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser(
+        "reset",
+        help="Clean generated runtime artifacts while preserving versioned inputs.",
+    )
+
+    p_run = sub.add_parser("run", help="Clean end-to-end MLOps run.")
+    p_run.add_argument(
+        "--continue",
+        dest="continue_mode",
+        action="store_true",
+        help="Do not reset; keep feedback/runtime state for the next learning cycle.",
+    )
+
+    p_control = sub.add_parser(
+        "control",
+        help="Run DPG explanation + concept analysis + control evaluation.",
+    )
+    p_control.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not automatically open the simplified global graph.",
+    )
+
+    p_graph = sub.add_parser("graph", help="Open the latest generated DPG graph.")
+    p_graph.add_argument(
+        "kind",
+        nargs="?",
+        choices=("global", "community"),
+        default="global",
+    )
+
+    p_govern = sub.add_parser(
+        "govern",
+        help="Run governed inference or record a human review.",
+    )
+    p_govern.add_argument(
+        "file",
+        nargs="?",
+        default="data/raw_test/example102.py",
+        help="Python file to analyze (default: data/raw_test/example102.py).",
+    )
+    group = p_govern.add_mutually_exclusive_group()
+    group.add_argument("--approve", metavar="EVENT_ID")
+    group.add_argument(
+        "--override",
+        nargs=2,
+        metavar=("EVENT_ID", "LEVEL"),
+    )
+    p_govern.add_argument("--reason", help="Human-review rationale.")
+
+    sub.add_parser(
+        "all",
+        help="Clean run + control evaluation + governance demo + open graph.",
+    )
+
+    return parser
+
+
+def main() -> None:
+    os.chdir(ROOT)
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.command == "reset":
+        command_reset()
+
+    elif args.command == "run":
+        command_run(args.continue_mode)
+
+    elif args.command == "control":
+        command_control(open_graph_after=not args.no_open)
+
+    elif args.command == "graph":
+        command_graph(args.kind)
+
+    elif args.command == "govern":
+        if args.approve:
+            command_review_approve(args.approve, args.reason)
+        elif args.override:
+            event_id, level = args.override
+            level = level.upper()
+            if level not in {"LOW", "MEDIUM", "HIGH"}:
+                raise SystemExit("Override LEVEL must be LOW, MEDIUM, or HIGH.")
+            if not args.reason:
+                raise SystemExit("--reason is required for an override.")
+            command_review_override(event_id, level, args.reason)
+        else:
+            command_govern_file(Path(args.file))
+
+    elif args.command == "all":
+        command_run(False)
+        command_control(open_graph_after=False)
+        command_govern_file(Path("data/raw_test/example102.py"))
+        print()
+        command_graph("global")
+
+
+if __name__ == "__main__":
+    main()

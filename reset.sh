@@ -52,13 +52,14 @@ rm -f models/logistic.pkl
 rm -f models/forest.pkl
 rm -f models/best_model.pkl
 
-# Governance/control runtime artifacts
+# Explainability/governance runtime artifacts
 rm -f data/governance/control_events.jsonl
+rm -rf experiments/dpg_outputs
 rm -rf experiments/control_outputs
 
 echo ""
 echo "Reset completed successfully."
-echo "You can now run a clean demo with:"
-echo "   python3 demo.py"
+echo "You can now run a clean workflow with:"
+echo "   ./speclens run"
 echo "====================================="
 
